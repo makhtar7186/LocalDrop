@@ -13,7 +13,12 @@ export interface SendPanelProps {
   api: TransferApi;
   maxConcurrent?: number;
   retryDelaysMs?: readonly number[];
+  /** Nombre d'envois en cours ou interrompus (pastille de navigation). */
+  onActivity?: (count: number) => void;
 }
+
+const CANCELLABLE = new Set<UploadProgress["status"]>(["queued", "uploading", "retrying"]);
+const FINISHED = new Set<UploadProgress["status"]>(["completed", "failed", "cancelled"]);
 
 const RESUMABLE = new Set<Transfer["status"]>(["waiting", "transferring", "paused"]);
 
@@ -57,7 +62,7 @@ function ProgressBar({ label, value, color }: { label: string; value: number; co
   );
 }
 
-function UploadRow({ item }: { item: UploadItem }) {
+function UploadRow({ item, onCancel }: { item: UploadItem; onCancel: (key: number) => void }) {
   const { progress } = item;
   return (
     <li className="rounded-lg border border-border bg-surface-raised p-3" data-status={progress.status}>
@@ -72,7 +77,19 @@ function UploadRow({ item }: { item: UploadItem }) {
         value={percent(progress.confirmedBytes, progress.totalBytes)}
         color={barColor[progress.status] ?? "bg-accent"}
       />
-      <p className="mt-1 text-sm text-text-muted">{statusText(progress)}</p>
+      <div className="mt-1 flex items-center justify-between gap-3">
+        <p className="text-sm text-text-muted">{statusText(progress)}</p>
+        {CANCELLABLE.has(progress.status) && (
+          <button
+            type="button"
+            onClick={() => onCancel(item.key)}
+            aria-label={messages.cancelUploadOf(item.name)}
+            className="min-h-11 shrink-0 rounded-lg border border-border px-3 text-sm text-text-muted"
+          >
+            {messages.cancelUpload}
+          </button>
+        )}
+      </div>
     </li>
   );
 }
@@ -125,15 +142,21 @@ function InterruptedRow({ transfer, error, onFile, onAbandon }: InterruptedRowPr
   );
 }
 
-export function SendPanel({ token, api, maxConcurrent = 2, retryDelaysMs }: SendPanelProps) {
+export function SendPanel({
+  token,
+  api,
+  maxConcurrent = 2,
+  retryDelaysMs,
+  onActivity,
+}: SendPanelProps) {
   const queue = useMemo(
     () =>
       new UploadQueue(
-        (file, onProgress, resume) =>
+        (file, onProgress, resume, signal) =>
           uploadFile(
             file,
             { api, token, onProgress, ...(retryDelaysMs ? { retryDelaysMs } : {}) },
-            resume ? { resume } : {},
+            resume ? { resume, signal } : { signal },
           ),
         maxConcurrent,
       ),
@@ -190,11 +213,14 @@ export function SendPanel({ token, api, maxConcurrent = 2, retryDelaysMs }: Send
     );
   };
 
-  const busy = items.some((i) => !["completed", "failed", "cancelled"].includes(i.progress.status));
+  const running = items.filter((i) => !FINISHED.has(i.progress.status)).length;
+  const busy = running > 0;
+  const activity = running + toResume.length;
+  useEffect(() => onActivity?.(activity), [onActivity, activity]);
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="send-title">
-      <h2 id="send-title" className="text-lg font-medium">
+      <h2 id="send-title" tabIndex={-1} className="text-lg font-medium">
         {messages.sendTitle}
       </h2>
 
@@ -224,7 +250,7 @@ export function SendPanel({ token, api, maxConcurrent = 2, retryDelaysMs }: Send
       ) : (
         <ul className="flex flex-col gap-2" aria-label={messages.uploadsListLabel}>
           {items.map((item) => (
-            <UploadRow key={item.key} item={item} />
+            <UploadRow key={item.key} item={item} onCancel={(key) => queue.cancel(key)} />
           ))}
         </ul>
       )}

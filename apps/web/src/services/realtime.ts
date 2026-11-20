@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 
 // Client WebSocket /ws (§8.5, §10.4).
 // - Authentification par premier message : le jeton n'apparaît jamais dans l'URL.

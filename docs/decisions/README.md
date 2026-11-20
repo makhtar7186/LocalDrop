@@ -107,6 +107,19 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Arrêt propre** : confirmation si des transferts sont actifs, puis fermeture des dialogues, arrêt du serveur (WebSocket fermés), des tâches et de la base, et suppression du jeton admin. Les transferts interrompus sont repris au démarrage suivant (réconciliation de la phase 6).
 - **Non fait** (optionnel au cahier) : icône de zone de notification et démarrage automatique avec Windows.
 
+## Décisions prises en phase 9 (interface mobile)
+
+- **Écrans du §14.3** : Accueil (nom du PC, actions Envoyer et Recevoir, compteurs), Envoyer, Recevoir et Historique.
+  - Routage par **hash** (`#/envoyer`, `#/recevoir`, `#/historique`), compatible avec le bouton Retour du téléphone.
+  - Barre de navigation basse (zone du pouce, `safe-area-inset-bottom`) avec pastilles libellées précisément (« 1 envoi en cours », « 2 fichiers à recevoir »).
+- **Écrans toujours montés, simplement masqués** (`hidden`) : un envoi en cours, la recherche ou le défilement ne sont jamais perdus en changeant d'écran.
+- **Annulation d'un envoi par le téléphone (FR-025)** : `AbortController` par envoi.
+  - Un envoi en file d'attente n'est jamais démarré. Un envoi en cours s'arrête entre deux blocs, y compris pendant les réessais réseau.
+  - Le transfert est annulé sur le PC (place libérée), et l'annulation reste effective côté téléphone même si le PC est injoignable.
+- **Accessibilité** : le focus va sur le titre de l'écran affiché, avec `aria-current="page"`, des cibles ≥ 44 px, `prefers-reduced-motion` et `lang="fr"`.
+- **Barrière d'erreur** : une erreur de rendu affiche un écran « Recharger la page », jamais une page blanche.
+- **Bundle** : passage à `zod/mini` (même validation, API fonctionnelle) : 110,7 → 94,4 Ko compressés. Le reste est surtout React 19.
+
 ## Décisions ouvertes
 
 - Pause et reprise d'un upload décidées sur le PC (distinguer la cause de la pause).

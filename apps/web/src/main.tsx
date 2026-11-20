@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./app/App";
+import { ErrorBoundary } from "./app/ErrorBoundary";
 import { consumeJoinFragment } from "./features/pairing/joinLink";
 import "./styles/index.css";
 
@@ -15,6 +16,8 @@ const joinParams = consumeJoinFragment();
 
 createRoot(root).render(
   <StrictMode>
-    <App joinParams={joinParams} />
+    <ErrorBoundary>
+      <App joinParams={joinParams} />
+    </ErrorBoundary>
   </StrictMode>,
 );

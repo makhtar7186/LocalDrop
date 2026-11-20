@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 8 terminées.** L'application Windows (PySide6) est disponible. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
+**Avancement : phases 0 à 9 terminées.** L'application Windows (PySide6) et l'interface mobile complète sont disponibles. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -35,7 +35,12 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - Ne jamais toucher un widget depuis un autre thread : passer par un signal.
   - Les paramètres utilisateur sont persistés par `load_settings()`/`save_user_settings()` ([core/config.py](backend/src/localdrop/core/config.py)).
 
-Prochaine étape : phase 9 (interface React complète). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 9 : écrans mobiles du §14.3. [App.tsx](apps/web/src/app/App.tsx) et [useScreen.ts](apps/web/src/app/useScreen.ts) gèrent le routage par hash, [BottomNav.tsx](apps/web/src/components/BottomNav.tsx) la navigation. L'annulation d'un envoi passe par `UploadQueue.cancel` et un `AbortSignal`.
+  - Les écrans restent **montés et masqués** : ne jamais conditionner `SendPanel` au routage, sinon les envois en cours sont perdus.
+  - Les schémas utilisent **`zod/mini`** (`import * as z from "zod/mini"`). Les modificateurs sont des fonctions : `z.nullable(x)`, `.check(z.minLength(1))`, `z.int().check(z.nonnegative())`.
+  - Les tests qui interagissent avec un écran doivent d'abord y **naviguer** : les requêtes par rôle ignorent les éléments masqués.
+
+Prochaine étape : phase 10 (sécurité, tests réseau réels, optimisation : matrice e2e du §16.3, audit de sécurité). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.

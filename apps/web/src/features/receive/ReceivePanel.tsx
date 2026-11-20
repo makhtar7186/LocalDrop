@@ -17,6 +17,8 @@ export interface ReceivePanelProps {
   /** Filet de sécurité : le temps réel déclenche une relecture immédiate. */
   pollMs?: number;
   realtime?: RealtimeConnection;
+  /** Nombre de fichiers proposés non encore reçus (pastille de navigation). */
+  onActivity?: (count: number) => void;
 }
 
 const isDownloadEvent = (event: RealtimeEvent) =>
@@ -30,7 +32,13 @@ interface Link {
 const VISIBLE = new Set<Transfer["status"]>(["waiting", "transferring", "completed"]);
 const LINK_MARGIN_MS = 60_000; // renouveler un ticket une minute avant expiration
 
-export function ReceivePanel({ token, api, pollMs = 15000, realtime }: ReceivePanelProps) {
+export function ReceivePanel({
+  token,
+  api,
+  pollMs = 15000,
+  realtime,
+  onActivity,
+}: ReceivePanelProps) {
   const nudge = useRealtimeNudge(realtime, isDownloadEvent);
   const [items, setItems] = useState<Transfer[] | null>(null);
   const [offline, setOffline] = useState(false);
@@ -94,6 +102,9 @@ export function ReceivePanel({ token, api, pollMs = 15000, realtime }: ReceivePa
     }
   }, [api, token, items, links]);
 
+  const waiting = items?.filter((t) => t.status !== "completed").length ?? 0;
+  useEffect(() => onActivity?.(waiting), [onActivity, waiting]);
+
   const act = (transfer: Transfer, action: "confirm" | "cancel") => {
     setBusy((prev) => new Set(prev).add(transfer.id));
     setActionError(false);
@@ -120,7 +131,7 @@ export function ReceivePanel({ token, api, pollMs = 15000, realtime }: ReceivePa
 
   return (
     <section className="flex flex-col gap-4" aria-labelledby="receive-title">
-      <h2 id="receive-title" className="text-lg font-medium">
+      <h2 id="receive-title" tabIndex={-1} className="text-lg font-medium">
         {messages.receiveTitle}
       </h2>
 

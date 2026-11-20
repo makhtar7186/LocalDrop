@@ -81,6 +81,29 @@ export const messages = {
   } as Record<string, string>,
   expired: "Annulé (expiré)",
 
+  cancelUpload: "Annuler",
+  cancelUploadOf: (name: string) => `Annuler l'envoi de ${name}`,
+
+  navLabel: "Navigation principale",
+  navHome: "Accueil",
+  navSend: "Envoyer",
+  navReceive: "Recevoir",
+  navHistory: "Historique",
+  badgeSend: (count: number) => (count > 1 ? `${count} envois en cours` : "1 envoi en cours"),
+  badgeReceive: (count: number) =>
+    count > 1 ? `${count} fichiers à recevoir` : "1 fichier à recevoir",
+  homeTitle: "Accueil",
+  homeConnectedTo: (server: string) => `Connecté à ${server}`,
+  homeSendAction: "Envoyer des fichiers au PC",
+  homeReceiveAction: "Recevoir des fichiers du PC",
+  homeReceiveWaiting: (count: number) =>
+    count > 1 ? `${count} fichiers vous attendent` : "1 fichier vous attend",
+  homeSendActive: (count: number) =>
+    count > 1 ? `${count} envois en cours ou interrompus` : "1 envoi en cours ou interrompu",
+  crashTitle: "Une erreur inattendue est survenue",
+  crashText: "Rechargez la page. Les envois interrompus pourront être repris.",
+  crashReload: "Recharger la page",
+
   liveOn: "● En direct",
   liveReconnecting: "○ Reconnexion…",
 } as const;

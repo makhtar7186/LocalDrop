@@ -1,6 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { BottomNav } from "../components/BottomNav";
 import { HistoryPanel } from "../features/history/HistoryPanel";
+import { HomeScreen } from "../features/home/HomeScreen";
 import type { JoinParams } from "../features/pairing/joinLink";
 import { type PairingOptions, type PairingState, usePairing } from "../features/pairing/usePairing";
 import { ReceivePanel } from "../features/receive/ReceivePanel";
@@ -16,6 +18,7 @@ import {
 } from "../services/api";
 import { RealtimeClient, type RealtimeConnection } from "../services/realtime";
 import { messages } from "./messages";
+import { type Screen, useScreen } from "./useScreen";
 
 export interface AppProps {
   joinParams?: JoinParams | null;
@@ -74,6 +77,13 @@ function describe(state: PairingState): { title?: string; text: string; tone: To
   }
 }
 
+const SCREEN_HEADING: Record<Screen, string> = {
+  accueil: "accueil-title",
+  envoyer: "send-title",
+  recevoir: "receive-title",
+  historique: "history-title",
+};
+
 export function App({
   joinParams = null,
   pairing = defaultPairing,
@@ -87,6 +97,9 @@ export function App({
   const state = usePairing(joinParams, { ...pairing, realtime });
   const { title, text, tone } = describe(state);
   const liveStatus = useSyncExternalStore(realtime.subscribeStatus, realtime.getStatus);
+  const [screen, navigate] = useScreen();
+  const [sendActivity, setSendActivity] = useState(0);
+  const [receiveWaiting, setReceiveWaiting] = useState(0);
 
   // Temps réel dès qu'un jeton existe (en attente d'approbation ou connecté).
   const token = state.kind === "pending" || state.kind === "connected" ? state.token : null;
@@ -96,50 +109,92 @@ export function App({
   }, [realtime, token]);
   useEffect(() => () => realtime.disconnect(), [realtime]);
 
+  // Accessibilité : à chaque changement d'écran, le focus va sur son titre (lecteurs d'écran).
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    document.getElementById(SCREEN_HEADING[screen])?.focus();
+  }, [screen]);
+
+  const connected = state.kind === "connected";
+  // L'état de connexion est toujours visible, sauf sur les écrans de travail une fois connecté.
+  const showStatus = !connected || screen === "accueil";
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-8">
-      <header>
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold">{messages.appName}</h1>
-          {token && (
-            <span
-              data-testid="live-status"
-              data-live={liveStatus}
-              className={`text-sm ${liveStatus === "open" ? "text-success" : "text-warning"}`}
-            >
-              {liveStatus === "open" ? messages.liveOn : messages.liveReconnecting}
-            </span>
-          )}
-        </div>
-        <p className="text-text-muted">{messages.tagline}</p>
-      </header>
+    <div className={`mx-auto flex min-h-screen max-w-md flex-col ${connected ? "pb-24" : ""}`}>
+      <main className="flex flex-1 flex-col gap-6 px-4 py-6">
+        <header>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold">{messages.appName}</h1>
+            {token && (
+              <span
+                data-testid="live-status"
+                data-live={liveStatus}
+                className={`text-sm ${liveStatus === "open" ? "text-success" : "text-warning"}`}
+              >
+                {liveStatus === "open" ? messages.liveOn : messages.liveReconnecting}
+              </span>
+            )}
+          </div>
+          {!connected && <p className="text-text-muted">{messages.tagline}</p>}
+        </header>
 
-      <section
-        aria-live="polite"
-        data-testid="pairing-status"
-        data-state={state.kind}
-        className={`rounded-lg border bg-surface-raised p-4 ${toneClasses[tone]}`}
-      >
-        {title && <h2 className="mb-1 text-lg font-medium">{title}</h2>}
-        <p>{text}</p>
-      </section>
+        <section
+          aria-live="polite"
+          data-testid="pairing-status"
+          data-state={state.kind}
+          hidden={!showStatus}
+          className={`rounded-lg border bg-surface-raised p-4 ${toneClasses[tone]}`}
+        >
+          {title && <h2 className="mb-1 text-lg font-medium">{title}</h2>}
+          <p>{text}</p>
+        </section>
 
-      {state.kind === "connected" && (
-        <>
-          <SendPanel token={state.token} api={transfers} />
-          <ReceivePanel
-            token={state.token}
-            api={receive}
-            realtime={realtime}
-            {...(receivePollMs ? { pollMs: receivePollMs } : {})}
-          />
-          <HistoryPanel token={state.token} api={history} realtime={realtime} />
-        </>
+        {connected && (
+          <>
+            {/* Écrans toujours montés, simplement masqués : un envoi en cours n'est jamais
+                interrompu par un changement d'écran. */}
+            <div hidden={screen !== "accueil"}>
+              <HomeScreen
+                serverName={state.serverName}
+                sendActivity={sendActivity}
+                receiveWaiting={receiveWaiting}
+                onNavigate={navigate}
+              />
+            </div>
+            <div hidden={screen !== "envoyer"}>
+              <SendPanel token={state.token} api={transfers} onActivity={setSendActivity} />
+            </div>
+            <div hidden={screen !== "recevoir"}>
+              <ReceivePanel
+                token={state.token}
+                api={receive}
+                realtime={realtime}
+                onActivity={setReceiveWaiting}
+                {...(receivePollMs ? { pollMs: receivePollMs } : {})}
+              />
+            </div>
+            <div hidden={screen !== "historique"}>
+              <HistoryPanel token={state.token} api={history} realtime={realtime} />
+            </div>
+          </>
+        )}
+
+        <p role="note" className="mt-auto text-sm text-warning">
+          {messages.trustedNetworkWarning}
+        </p>
+      </main>
+
+      {connected && (
+        <BottomNav
+          current={screen}
+          onNavigate={navigate}
+          badges={{ envoyer: sendActivity, recevoir: receiveWaiting }}
+        />
       )}
-
-      <p role="note" className="mt-auto text-sm text-warning">
-        {messages.trustedNetworkWarning}
-      </p>
-    </main>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import type * as z from "zod/mini";
 
 import {
   type ChunkAck,
@@ -15,6 +15,7 @@ import {
   sessionStatusSchema,
   type SessionStatus,
   type Transfer,
+  transferListSchema,
   transferSchema,
 } from "./schemas";
 
@@ -42,7 +43,7 @@ export class NetworkError extends Error {
 }
 
 async function request<T>(
-  schema: z.ZodType<T>,
+  schema: z.ZodMiniType<T>,
   path: string,
   init: RequestInit & { token?: string } = {},
 ): Promise<T> {
@@ -145,7 +146,7 @@ export const transferApi: TransferApi = {
     }),
   cancel: (token, transferId) =>
     request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
-  list: (token) => request(transferSchema.array(), "/transfers", { token }),
+  list: (token) => request(transferListSchema, "/transfers", { token }),
   resume: (token, transferId) =>
     request(transferSchema, `/transfers/${enc(transferId)}/resume`, { method: "POST", token }),
 };
@@ -158,7 +159,7 @@ export interface ReceiveApi {
 }
 
 export const receiveApi: ReceiveApi = {
-  list: (token) => request(transferSchema.array(), "/transfers", { token }),
+  list: (token) => request(transferListSchema, "/transfers", { token }),
   ticket: (token, transferId) =>
     request(downloadTicketSchema, `/transfers/${enc(transferId)}/download-ticket`, {
       method: "POST",

@@ -3,7 +3,7 @@ import { sha256 } from "hash-wasm";
 import { ApiError, NetworkError, type TransferApi } from "../src/services/api";
 import type { ChunkAck, Transfer } from "../src/services/schemas";
 import { UploadQueue } from "../src/services/uploadQueue";
-import { uploadFile, type UploadProgress } from "../src/services/uploader";
+import { UploadCancelledError, uploadFile, type UploadProgress } from "../src/services/uploader";
 
 const CHUNK = 4;
 
@@ -285,5 +285,74 @@ describe("reprise (FR-026)", () => {
       }),
     ).rejects.toBeInstanceOf(NetworkError);
     expect(window.localStorage.getItem("localdrop.uploads")).toContain("long.mp4");
+  });
+});
+
+describe("annulation (FR-025)", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("interrompt l'envoi entre deux blocs et l'annule sur le PC", async () => {
+    const server = new FakeServer();
+    const controller = new AbortController();
+    const statuses: string[] = [];
+    server.putChunk.mockImplementationOnce(async (_t, _id, index, data) => {
+      controller.abort(); // l'utilisateur annule pendant l'envoi du premier bloc
+      return { index, already_received: false, received_bytes: data.length, status: "transferring" as const };
+    });
+
+    await expect(
+      uploadFile(
+        fileOf("0123456789ab"),
+        { api: server, token: "t", onProgress: (p) => statuses.push(p.status), sleep: noSleep },
+        { signal: controller.signal },
+      ),
+    ).rejects.toBeInstanceOf(UploadCancelledError);
+
+    expect(server.putChunk).toHaveBeenCalledTimes(1); // plus aucun bloc après l'annulation
+    expect(server.complete).not.toHaveBeenCalled();
+    expect(server.cancel).toHaveBeenCalledTimes(1);
+    expect(statuses.at(-1)).toBe("cancelled");
+    expect(window.localStorage.getItem("localdrop.uploads")).toBe("{}");
+  });
+
+  it("une annulation pendant une coupure réseau arrête les réessais", async () => {
+    const server = new FakeServer();
+    server.failNextPuts = 100;
+    const controller = new AbortController();
+    let sleeps = 0;
+    await expect(
+      uploadFile(
+        fileOf("abcd"),
+        {
+          api: server,
+          token: "t",
+          onProgress: () => {},
+          sleep: () => {
+            sleeps += 1;
+            if (sleeps === 2) controller.abort();
+            return Promise.resolve();
+          },
+        },
+        { signal: controller.signal },
+      ),
+    ).rejects.toBeInstanceOf(UploadCancelledError);
+    expect(sleeps).toBe(2);
+  });
+
+  it("annuler un envoi encore en file d'attente ne le démarre jamais", async () => {
+    const started: string[] = [];
+    const releases: Array<() => void> = [];
+    const queue = new UploadQueue((file) => {
+      started.push(file.name);
+      return new Promise<void>((resolve) => releases.push(resolve));
+    }, 1);
+    queue.add([fileOf("a", "1"), fileOf("b", "2")]);
+    const second = queue.getSnapshot()[1];
+    if (!second) throw new Error("élément manquant");
+
+    queue.cancel(second.key);
+    expect(queue.getSnapshot()[1]?.progress.status).toBe("cancelled");
+    releases.shift()?.();
+    await vi.waitFor(() => expect(started).toEqual(["1"]));
   });
 });

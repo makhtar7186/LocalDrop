@@ -87,7 +87,7 @@ export function HistoryPanel({
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby="history-title">
-      <h2 id="history-title" className="text-lg font-medium">
+      <h2 id="history-title" tabIndex={-1} className="text-lg font-medium">
         {messages.historyTitle}
       </h2>
 

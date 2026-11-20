@@ -13,19 +13,22 @@ export interface UploadItem {
 export type RunUpload = (
   file: UploadableFile,
   onProgress: (progress: UploadProgress) => void,
-  resume?: Transfer,
+  resume: Transfer | undefined,
+  signal: AbortSignal,
 ) => Promise<unknown>;
 
 interface Job {
   key: number;
   file: UploadableFile;
   resume?: Transfer;
+  controller: AbortController;
 }
 
 export class UploadQueue {
   private items: UploadItem[] = [];
   private readonly pending: Job[] = [];
   private readonly listeners = new Set<() => void>();
+  private readonly controllers = new Map<number, AbortController>();
   private active = 0;
   private nextKey = 1;
 
@@ -42,20 +45,41 @@ export class UploadQueue {
   readonly getSnapshot = (): readonly UploadItem[] => this.items;
 
   add(files: Iterable<UploadableFile>): void {
-    for (const file of files) this.enqueue({ key: this.nextKey++, file });
+    for (const file of files) {
+      this.enqueue({ key: this.nextKey++, file, controller: new AbortController() });
+    }
     this.emit();
     this.pump();
   }
 
   /** Reprend un transfert existant avec le fichier resélectionné (FR-026). */
   resume(file: UploadableFile, transfer: Transfer): void {
-    this.enqueue({ key: this.nextKey++, file, resume: transfer });
+    this.enqueue({
+      key: this.nextKey++,
+      file,
+      resume: transfer,
+      controller: new AbortController(),
+    });
     this.emit();
     this.pump();
   }
 
+  /** Annule un envoi (FR-025) : retiré de la file s'il n'a pas commencé, sinon interrompu. */
+  cancel(key: number): void {
+    const waiting = this.pending.findIndex((job) => job.key === key);
+    if (waiting >= 0) {
+      this.pending.splice(waiting, 1);
+      this.controllers.delete(key);
+      const item = this.items.find((i) => i.key === key);
+      if (item) this.update(key, { ...item.progress, status: "cancelled" });
+      return;
+    }
+    this.controllers.get(key)?.abort();
+  }
+
   private enqueue(job: Job): void {
     this.pending.push(job);
+    this.controllers.set(job.key, job.controller);
     this.items = [
       ...this.items,
       {
@@ -77,11 +101,17 @@ export class UploadQueue {
       const next = this.pending.shift();
       if (!next) return;
       this.active += 1;
-      this.run(next.file, (progress) => this.update(next.key, progress), next.resume)
+      this.run(
+        next.file,
+        (progress) => this.update(next.key, progress),
+        next.resume,
+        next.controller.signal,
+      )
         .catch(() => {
           // l'état « failed » a déjà été publié par l'uploader
         })
         .finally(() => {
+          this.controllers.delete(next.key);
           this.active -= 1;
           this.pump();
         });

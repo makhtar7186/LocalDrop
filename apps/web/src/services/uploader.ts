@@ -43,6 +43,16 @@ export interface UploadDeps {
 export interface UploadOptions {
   /** Transfert existant à reprendre (après rechargement de la page). */
   resume?: Transfer;
+  /** Annulation demandée par l'utilisateur (FR-025). */
+  signal?: AbortSignal;
+}
+
+/** Levée quand l'utilisateur annule : l'envoi est annulé aussi sur le PC. */
+export class UploadCancelledError extends Error {
+  constructor() {
+    super("Envoi annulé");
+    this.name = "UploadCancelledError";
+  }
 }
 
 // ~1 min de tentatives : couvre une coupure Wi-Fi ou un redémarrage du PC.
@@ -113,8 +123,20 @@ export async function uploadFile(
   };
 
   let transferId: string | undefined = options.resume?.id;
+  const { signal } = options;
+  const throwIfCancelled = () => {
+    if (signal?.aborted) throw new UploadCancelledError();
+  };
   const retry = <T,>(op: () => Promise<T>) =>
-    withRetry(op, retryDelaysMs, sleep, () => report("retrying"));
+    withRetry(
+      () => {
+        throwIfCancelled();
+        return op();
+      },
+      retryDelaysMs,
+      sleep,
+      () => report("retrying"),
+    );
 
   try {
     let transfer = options.resume ?? (await retry(() => api.create(token, file.name, file.size)));
@@ -138,6 +160,7 @@ export async function uploadFile(
     fileHasher.init();
 
     for (let index = 0; index < transfer.total_chunks; index += 1) {
+      throwIfCancelled();
       const start = index * transfer.chunk_size;
       const end = Math.min(start + transfer.chunk_size, file.size);
       const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
@@ -159,6 +182,7 @@ export async function uploadFile(
       report("uploading");
     }
 
+    throwIfCancelled();
     report("verifying");
     const done = await retry(() => api.complete(token, id, fileHasher.digest("hex")));
     confirmed = done.received_bytes;
@@ -170,6 +194,16 @@ export async function uploadFile(
     }
     return done;
   } catch (error) {
+    if (error instanceof UploadCancelledError) {
+      if (transferId) {
+        const id = transferId;
+        // Libère la place sur le PC ; l'annulation reste effective même si le PC est injoignable.
+        await api.cancel(token, id).catch(() => undefined);
+        forgetUpload(id);
+      }
+      report("cancelled");
+      throw error;
+    }
     const errorCode =
       error instanceof ApiError
         ? error.code

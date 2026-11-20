@@ -82,6 +82,7 @@ it("FR-021/FR-022/FR-024 : envoie plusieurs fichiers avec progression", async ()
     />,
   );
 
+  await userEvent.click(await screen.findByRole("button", { name: "Envoyer" }));
   const input = await screen.findByLabelText("Choisir des fichiers");
   expect(screen.getByText("Aucun envoi pour le moment.")).toBeInTheDocument();
 

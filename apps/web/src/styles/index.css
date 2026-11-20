@@ -27,3 +27,18 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
     env(safe-area-inset-left);
 }
+
+/* Titres focalisés par programme : pas de contour parasite à la souris/au toucher. */
+h2[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Respect du réglage « réduire les animations » (accessibilité). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
