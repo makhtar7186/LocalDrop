@@ -11,7 +11,7 @@ import threading
 from datetime import datetime
 
 from localdrop.domain.devices.models import Device
-from localdrop.domain.sessions.models import Session
+from localdrop.domain.sessions.models import Session, SessionStatus
 
 
 class InMemorySessionRepository:
@@ -33,6 +33,17 @@ class InMemorySessionRepository:
         with self._lock:
             active = [s for s in self._sessions.values() if s.is_active(now)]
         return copy.copy(max(active, key=lambda s: s.created_at)) if active else None
+
+    def expire_sessions(self, now: datetime) -> int:
+        with self._lock:
+            expired = [
+                s
+                for s in self._sessions.values()
+                if s.status is SessionStatus.ACTIVE and s.expires_at <= now
+            ]
+            for session in expired:
+                session.status = SessionStatus.EXPIRED
+            return len(expired)
 
     def save_device(self, device: Device) -> None:
         with self._lock:

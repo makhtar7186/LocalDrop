@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.orm import sessionmaker
@@ -17,9 +17,17 @@ from sqlalchemy.orm import sessionmaker
 from localdrop.domain.devices.models import Device, DeviceStatus, Platform
 from localdrop.domain.sessions.models import Session, SessionStatus
 from localdrop.domain.transfers.models import ChunkRecord, Direction, Transfer, TransferStatus
+from localdrop.domain.transfers.query import TransferPage, TransferQuery
 from localdrop.infrastructure.database.models import ChunkRow, DeviceRow, SessionRow, TransferRow
 
 SessionFactory = sessionmaker[OrmSession]
+
+_LIKE_ESCAPE = "!"
+
+
+def _escape_like(text: str) -> str:
+    """Recherche littérale : les jokers LIKE saisis par l'utilisateur sont neutralisés."""
+    return text.replace("!", "!!").replace("%", "!%").replace("_", "!_")
 
 
 # ----------------------------------------------------------------------------- conversions
@@ -154,6 +162,16 @@ class SqlSessionRepository:
             ).first()
             return _session_to_domain(row) if row else None
 
+    def expire_sessions(self, now: datetime) -> int:
+        with self._sessions.begin() as db:
+            result = db.execute(
+                update(SessionRow)
+                .where(SessionRow.status == SessionStatus.ACTIVE.value)
+                .where(SessionRow.expires_at <= now)
+                .values(status=SessionStatus.EXPIRED.value)
+            )
+            return int(getattr(result, "rowcount", 0) or 0)
+
     def save_device(self, device: Device) -> None:
         with self._sessions.begin() as db:
             db.merge(DeviceRow(**_device_values(device)))
@@ -232,6 +250,42 @@ class SqlTransferRepository:
         except IntegrityError:
             return False  # contrainte unique (transfer_id, chunk_index)
         return True
+
+    def search(self, query: TransferQuery) -> TransferPage:
+        conditions: list[Any] = []
+        if query.device_id is not None:
+            conditions.append(TransferRow.device_id == query.device_id)
+        if query.direction is not None:
+            conditions.append(TransferRow.direction == query.direction.value)
+        if query.statuses:
+            conditions.append(TransferRow.status.in_(sorted(s.value for s in query.statuses)))
+        if query.text:
+            pattern = f"%{_escape_like(query.text.casefold())}%"
+            conditions.append(
+                or_(
+                    func.casefold(TransferRow.safe_filename).like(pattern, escape=_LIKE_ESCAPE),
+                    func.casefold(TransferRow.filename).like(pattern, escape=_LIKE_ESCAPE),
+                )
+            )
+        with self._sessions() as db:
+            total = db.scalar(select(func.count()).select_from(TransferRow).where(*conditions))
+            rows = db.scalars(
+                select(TransferRow)
+                .where(*conditions)
+                .order_by(TransferRow.created_at.desc(), TransferRow.id.desc())
+                .limit(query.limit)
+                .offset(query.offset)
+            )
+            return TransferPage([_transfer_to_domain(r) for r in rows], int(total or 0))
+
+    def delete_terminal_before(self, cutoff: datetime) -> int:
+        terminal = ("completed", "failed", "cancelled")
+        old_terminal = (TransferRow.status.in_(terminal), TransferRow.updated_at < cutoff)
+        with self._sessions.begin() as db:
+            doomed = select(TransferRow.id).where(*old_terminal)
+            db.execute(delete(ChunkRow).where(ChunkRow.transfer_id.in_(doomed)))
+            result = db.execute(delete(TransferRow).where(*old_terminal))
+            return int(getattr(result, "rowcount", 0) or 0)
 
     def get_chunks(self, transfer_id: str) -> dict[int, ChunkRecord]:
         with self._sessions() as db:

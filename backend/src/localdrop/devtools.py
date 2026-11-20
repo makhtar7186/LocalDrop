@@ -6,6 +6,7 @@
     python -m localdrop.devtools send <fichier> [--device <id>]   # PC -> téléphone
     python -m localdrop.devtools cancel <transfer_id>              # annule un envoi du PC
     python -m localdrop.devtools watch                             # événements en direct
+    python -m localdrop.devtools history [--q mot] [--status completed] [--device id]
     python -m localdrop.devtools approve <id>
     python -m localdrop.devtools reject <id>
     python -m localdrop.devtools revoke <id>   # sans id : ferme toute la session
@@ -21,6 +22,7 @@ import contextlib
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -114,6 +116,11 @@ def main(argv: list[str] | None = None) -> None:
     send.add_argument("--device", dest="device_id")
     sub.add_parser("cancel").add_argument("transfer_id")
     sub.add_parser("watch")
+    hist = sub.add_parser("history")
+    hist.add_argument("--q")
+    hist.add_argument("--status", action="append", default=[])
+    hist.add_argument("--device", dest="device_id")
+    hist.add_argument("--limit", type=int, default=20)
     for name in ("approve", "reject"):
         sub.add_parser(name).add_argument("device_id")
     sub.add_parser("revoke").add_argument("device_id", nargs="?")
@@ -130,6 +137,22 @@ def main(argv: list[str] | None = None) -> None:
         result = _call(settings, "GET", "/devices")
     elif args.command == "transfers":
         result = _call(settings, "GET", "/admin/transfers")
+    elif args.command == "history":
+        params: list[tuple[str, str]] = [("limit", str(args.limit))]
+        params += [("status", s) for s in args.status]
+        if args.q:
+            params.append(("q", args.q))
+        if args.device_id:
+            params.append(("device_id", args.device_id))
+        page = _call(settings, "GET", f"/admin/history?{urllib.parse.urlencode(params)}")
+        print(f"{page['total']} transfert(s), du plus récent au plus ancien :")
+        for t in page["items"]:
+            sens = "PC -> tél." if t["direction"] == "download" else "tél. -> PC"
+            print(
+                f"  {t['created_at'][:16].replace('T', ' ')}  {sens:<10} {t['status']:<12} "
+                f"{t['size']:>12} o  {t['safe_filename']}"
+            )
+        return
     elif args.command == "send":
         body = {"path": str(Path(args.path).resolve()), "device_id": _pick_device(settings, args)}
         result = _call(settings, "POST", "/admin/transfers/outgoing", body)

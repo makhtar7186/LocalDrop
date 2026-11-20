@@ -334,3 +334,74 @@ def test_new_pairing_secret_after_restart(start: Callable[[], AppServices]) -> N
     after = second.pairing.current_pairing()
     assert after.session_id == before.session_id  # même session, appareils conservés
     assert after.secret != before.secret  # mais nouveau QR Code : le secret n'est pas stocké
+
+
+# ----------------------------------------------------------------------------- historique (phase 7)
+def _seed_history(repos: Repos) -> None:
+    sessions, transfers = repos
+    assert isinstance(sessions, InMemorySessionRepository | SqlSessionRepository)
+    assert isinstance(transfers, InMemoryTransferRepository | SqlTransferRepository)
+    sessions.save_session(_session())
+    sessions.save_device(_device("d1"))
+    sessions.save_device(_device("d2"))
+    specs = [
+        ("t1", "d1", Direction.UPLOAD, TransferStatus.COMPLETED, "Été 2026.mp4", 0),
+        ("t2", "d1", Direction.DOWNLOAD, TransferStatus.COMPLETED, "rapport_final.pdf", 1),
+        ("t3", "d1", Direction.UPLOAD, TransferStatus.FAILED, "100%_réussi.txt", 2),
+        ("t4", "d2", Direction.UPLOAD, TransferStatus.COMPLETED, "été.jpg", 3),
+        ("t5", "d1", Direction.UPLOAD, TransferStatus.TRANSFERRING, "en_cours.iso", 4),
+    ]
+    for transfer_id, device_id, direction, status, name, minutes in specs:
+        transfer = _transfer(transfer_id, device_id)
+        transfer.direction = direction
+        transfer.status = status
+        transfer.safe_filename = name
+        transfer.filename = name
+        transfer.created_at = transfer.updated_at = NOW + timedelta(minutes=minutes)
+        transfers.add(transfer)
+
+
+def test_FR_034_history_filters_and_pagination(repos: Repos) -> None:
+    from localdrop.domain.transfers.query import TransferQuery
+
+    _seed_history(repos)
+    transfers = repos[1]
+    assert isinstance(transfers, InMemoryTransferRepository | SqlTransferRepository)
+
+    def ids(**criteria: object) -> list[str]:
+        return [t.id for t in transfers.search(TransferQuery(**criteria)).items]  # type: ignore[arg-type]
+
+    assert ids() == ["t5", "t4", "t3", "t2", "t1"]  # du plus récent au plus ancien
+    assert ids(device_id="d1", direction=Direction.UPLOAD) == ["t5", "t3", "t1"]
+    assert ids(statuses=frozenset({TransferStatus.FAILED, TransferStatus.TRANSFERRING})) == [
+        "t5",
+        "t3",
+    ]
+    # Insensible à la casse ET aux accents majuscules : « été » trouve « Été 2026.mp4 ».
+    assert ids(text="été") == ["t4", "t1"]
+    assert ids(text="ÉTÉ", device_id="d1") == ["t1"]
+    # Les jokers SQL saisis par l'utilisateur sont pris littéralement.
+    assert ids(text="100%") == ["t3"]
+    assert ids(text="_final") == ["t2"]
+    assert ids(text="%") == ["t3"]
+
+    page = transfers.search(TransferQuery(limit=2, offset=2))
+    assert ([t.id for t in page.items], page.total) == (["t3", "t2"], 5)
+
+
+def test_FR_035_purge_only_old_terminal_transfers(repos: Repos) -> None:
+    _seed_history(repos)
+    sessions, transfers = repos
+    assert isinstance(transfers, InMemoryTransferRepository | SqlTransferRepository)
+    assert isinstance(sessions, InMemorySessionRepository | SqlSessionRepository)
+    transfers.add_chunk("t1", ChunkRecord(0, 4, "b" * 64, NOW))
+
+    # t1, t2, t3 terminés avant NOW+2min30 ; t4 terminé après ; t5 actif.
+    purged = transfers.delete_terminal_before(NOW + timedelta(minutes=2, seconds=30))
+    assert purged == 3
+    assert [t.id for t in transfers.list_all()] == ["t4", "t5"]
+    assert transfers.get_chunks("t1") == {}
+
+    assert sessions.expire_sessions(NOW) == 0
+    assert sessions.expire_sessions(NOW + timedelta(hours=13)) == 1
+    assert sessions.find_active_session(NOW) is None

@@ -39,6 +39,7 @@ const offered: Transfer = {
   sha256: null,
   error_code: null,
   fully_served: false,
+  created_at: "2026-11-20T10:00:00Z",
 };
 
 function receiveApi(lists: Transfer[][]): ReceiveApi {

@@ -28,7 +28,8 @@ def settings(tmp_path: Path) -> Settings:
         network_poll_seconds=0,
         free_space_margin=0,
         ws_auth_timeout_seconds=0.5,
-        persistence="memory",  # SQLite : tests dédiés (test_persistence.py)
+        persistence="memory",
+        maintenance_interval_minutes=0,  # SQLite : tests dédiés (test_persistence.py)
     )
 
 

@@ -62,6 +62,7 @@ export const transferSchema = z.object({
   sha256: z.string().nullable(),
   error_code: z.string().nullable(),
   fully_served: z.boolean(),
+  created_at: z.string(),
 });
 export type Transfer = z.infer<typeof transferSchema>;
 
@@ -84,3 +85,11 @@ export const downloadTicketSchema = z.object({
   expires_at: z.string(),
 });
 export type DownloadTicket = z.infer<typeof downloadTicketSchema>;
+
+export const historyPageSchema = z.object({
+  items: z.array(transferSchema),
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type HistoryPage = z.infer<typeof historyPageSchema>;

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 6 terminées.** Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite et reprise après redémarrage ou rechargement.
+**Avancement : phases 0 à 7 terminées.** Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -25,7 +25,12 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - `pause`/`resume`, avec 409 `TRANSFER_PAUSED`.
   - Côté web : [pendingUploads.ts](apps/web/src/services/pendingUploads.ts) mémorise les envois, et `uploadFile(file, deps, { resume })` les reprend.
 
-Prochaine étape : phase 7 (historique et nettoyage : tâche de maintenance, expiration des temporaires, FR-034/FR-035). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 7 :
+  - [services/maintenance.py](backend/src/localdrop/services/maintenance.py) (FR-035) ;
+  - historique `GET /history` et `/admin/history` (FR-034), ainsi que l'écran Historique mobile ;
+  - [server.py](backend/src/localdrop/server.py) : `LocalServer` lie les sockets, **redémarre tout seul** quand une adresse apparaît et affiche l'aide de connexion. Le desktop doit le réutiliser (`run()` bloquant dans un thread, `stop()`, `started`).
+
+Prochaine étape : phase 8 (application Windows PySide6, qui embarque `LocalServer` et `AppServices`). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -96,6 +101,7 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/python -m localdrop.devtools qr|devices|transfers|approve <id>|reject <id>|revoke [<id>]   # admin en dev
 .venv/Scripts/python -m localdrop.devtools send <fichier> [--device <id>] | cancel <transfer_id>   # PC -> téléphone
 .venv/Scripts/python -m localdrop.devtools watch             # événements temps réel (WebSocket admin)
+.venv/Scripts/python -m localdrop.devtools history [--q mot] [--status completed] [--device id]
 # LOCALDROP_LAN_ENABLED=false : loopback seul (évite la boîte de dialogue du pare-feu lors des tests locaux)
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)

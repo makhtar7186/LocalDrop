@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from localdrop.core.errors import LocalDropError
@@ -111,6 +112,13 @@ class FileStorage:
             while block := fh.read(_READ_BLOCK):
                 digest.update(block)
         return digest.hexdigest()
+
+    def temp_modified_at(self, transfer_id: str) -> datetime | None:
+        try:
+            mtime = self.temp_path(transfer_id).stat().st_mtime
+        except OSError:
+            return None
+        return datetime.fromtimestamp(mtime, tz=UTC)
 
     def temp_exists(self, transfer_id: str) -> bool:
         return self.temp_path(transfer_id).is_file()

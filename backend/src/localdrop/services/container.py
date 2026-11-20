@@ -21,6 +21,7 @@ from localdrop.infrastructure.network.interfaces import (
 from localdrop.infrastructure.storage.files import FileStorage
 from localdrop.services.downloads import DownloadService
 from localdrop.services.events import EventBus
+from localdrop.services.maintenance import MaintenanceReport, MaintenanceService
 from localdrop.services.network_monitor import AddressProvider, NetworkMonitor
 from localdrop.services.pairing import PairingService
 from localdrop.services.transfers import ReconcileReport, TransferService
@@ -35,10 +36,12 @@ class AppServices:
     storage: FileStorage
     transfers: TransferService
     downloads: DownloadService
+    maintenance: MaintenanceService
     # Jeton des routes d'administration HTTP (outil dev / desktop hors processus).
     admin_token: str
     server_name: str
     reconcile_report: ReconcileReport = field(default_factory=ReconcileReport)
+    maintenance_report: MaintenanceReport = field(default_factory=MaintenanceReport)
     _closers: list[Callable[[], None]] = field(default_factory=list, repr=False)
 
     def close(self) -> None:
@@ -115,6 +118,20 @@ def build_services(
         ticket_ttl=timedelta(seconds=settings.download_ticket_ttl_seconds),
     )
     report = transfers.reconcile()
+    maintenance = MaintenanceService(
+        transfer_repository,
+        session_repository,
+        storage,
+        downloads,
+        events,
+        history_retention=(
+            timedelta(days=settings.history_retention_days)
+            if settings.history_retention_days is not None
+            else None
+        ),
+        orphan_grace=timedelta(minutes=settings.orphan_grace_minutes),
+    )
+    maintenance_report = maintenance.run_once()
 
     return AppServices(
         settings=settings,
@@ -124,8 +141,10 @@ def build_services(
         storage=storage,
         transfers=transfers,
         downloads=downloads,
+        maintenance=maintenance,
         admin_token=generate_secret(),
         server_name=socket.gethostname(),
         reconcile_report=report,
+        maintenance_report=maintenance_report,
         _closers=closers,
     )

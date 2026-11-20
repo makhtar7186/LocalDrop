@@ -39,14 +39,23 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         monitor: asyncio.Task[None] | None = None
         if settings.network_poll_seconds > 0:
             monitor = asyncio.create_task(services.network.run(settings.network_poll_seconds))
+        tasks: list[asyncio.Task[None]] = [] if monitor is None else [monitor]
+        if settings.maintenance_interval_minutes > 0:
+            tasks.append(
+                asyncio.create_task(
+                    services.maintenance.run_periodically(
+                        settings.maintenance_interval_minutes * 60
+                    )
+                )
+            )
         try:
             yield
         finally:
             await hub.stop()
-            if monitor is not None:
-                monitor.cancel()
+            for task in tasks:
+                task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await monitor
+                    await task
 
     app = FastAPI(
         title="LocalDrop",

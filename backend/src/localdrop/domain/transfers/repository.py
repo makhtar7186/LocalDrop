@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from localdrop.domain.transfers.models import ChunkRecord, Transfer
+from localdrop.domain.transfers.query import TransferPage, TransferQuery
 
 
 class TransferRepository(Protocol):
@@ -31,4 +33,13 @@ class TransferRepository(Protocol):
 
     def received_bytes(self, transfer_id: str) -> int:
         """Somme des tailles des blocs validés (source de vérité de la progression)."""
+        ...
+
+    def search(self, query: TransferQuery) -> TransferPage:
+        """Historique filtré, du plus récent au plus ancien (FR-034)."""
+        ...
+
+    def delete_terminal_before(self, cutoff: datetime) -> int:
+        """Supprime l'historique (et les blocs) des transferts terminés avant ``cutoff``.
+        Ne touche jamais aux fichiers. Renvoie le nombre de transferts supprimés."""
         ...

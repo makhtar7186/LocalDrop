@@ -18,6 +18,7 @@ function download(id: string, status: Transfer["status"], name = `${id}.pdf`): T
     sha256: null,
     error_code: null,
     fully_served: false,
+    created_at: "2026-11-20T10:00:00Z",
   };
 }
 
@@ -90,7 +91,7 @@ it("FR-025 : ignorer un fichier le retire de la liste", async () => {
 it("FR-043 : signale un PC injoignable puis se rétablit", async () => {
   const api = fakeReceive([download("d", "waiting")]);
   api.list.mockRejectedValueOnce(new Error("réseau"));
-  render(<ReceivePanel token="tok" api={api} pollMs={10} />);
+  render(<ReceivePanel token="tok" api={api} pollMs={300} />); // état hors connexion observable
   expect(await screen.findByText(/PC injoignable/)).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByText(/PC injoignable/)).toBeNull());
   expect(await screen.findByRole("link", { name: "Télécharger" })).toBeInTheDocument();

@@ -1,10 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { HistoryPanel } from "../features/history/HistoryPanel";
 import type { JoinParams } from "../features/pairing/joinLink";
 import { type PairingOptions, type PairingState, usePairing } from "../features/pairing/usePairing";
 import { ReceivePanel } from "../features/receive/ReceivePanel";
 import { SendPanel } from "../features/send/SendPanel";
 import {
+  type HistoryApi,
+  historyApi,
   pairingApi,
   type ReceiveApi,
   receiveApi,
@@ -21,6 +24,7 @@ export interface AppProps {
   receive?: ReceiveApi;
   receivePollMs?: number;
   realtime?: RealtimeConnection;
+  history?: HistoryApi;
 }
 
 const defaultPairing: PairingOptions = { api: pairingApi };
@@ -77,6 +81,7 @@ export function App({
   receive = receiveApi,
   receivePollMs,
   realtime: injectedRealtime,
+  history = historyApi,
 }: AppProps) {
   const [realtime] = useState<RealtimeConnection>(() => injectedRealtime ?? new RealtimeClient());
   const state = usePairing(joinParams, { ...pairing, realtime });
@@ -128,6 +133,7 @@ export function App({
             realtime={realtime}
             {...(receivePollMs ? { pollMs: receivePollMs } : {})}
           />
+          <HistoryPanel token={state.token} api={history} realtime={realtime} />
         </>
       )}
 

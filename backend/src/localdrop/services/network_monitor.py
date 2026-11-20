@@ -46,6 +46,16 @@ class NetworkMonitor:
             return candidates
         return [c for c in candidates if c.ip in self.bound_ips]
 
+    def refresh_quietly(self) -> None:
+        """Relit les interfaces sans publier d'événement (juste avant de lier les sockets)."""
+        try:
+            fresh = self._provider()
+        except Exception:
+            logger.exception("Détection des interfaces réseau impossible")
+            return
+        with self._lock:
+            self._candidates = fresh
+
     def refresh(self) -> bool:
         """Relit les interfaces. Renvoie True si l'ensemble des adresses a changé."""
         try:

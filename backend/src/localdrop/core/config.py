@@ -40,10 +40,16 @@ class Settings(BaseSettings):
     download_ticket_ttl_seconds: int = Field(default=900, ge=30)  # liens de téléchargement
     free_space_margin: int = Field(default=64 * MIB, ge=0)  # réserve laissée libre sur le disque
 
+    # Maintenance (FR-035, §13.3)
+    maintenance_interval_minutes: float = Field(default=15, ge=0)  # 0 = au démarrage seulement
+    history_retention_days: float | None = Field(default=30, gt=0)  # None = conservé sans limite
+    orphan_grace_minutes: float = Field(default=60, ge=0)
+
     # Réseau (§8.1, §12.2-11)
     lan_enabled: bool = True  # lier aussi les IPv4 privées détectées (sinon loopback seul)
     allow_public_clients: bool = False  # refuser les clients hors réseaux privés
     network_poll_seconds: float = Field(default=5.0, ge=0)  # 0 = surveillance désactivée
+    join_help_delay_seconds: float = Field(default=60, ge=0)  # aide si aucun téléphone (§3.3)
     excluded_interface_patterns: tuple[str, ...] | None = None  # None = liste par défaut
 
     # Sessions et appairage (§8.2, §12.2)

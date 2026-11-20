@@ -19,7 +19,13 @@ def database_url(database_dir: Path) -> str:
     return f"sqlite:///{database_path(database_dir).as_posix()}"
 
 
+def _casefold(value: str | None) -> str | None:
+    return value.casefold() if value is not None else None
+
+
 def _apply_pragmas(dbapi_connection: Any, _: Any) -> None:
+    # lower() de SQLite ne connaît que l'ASCII : « Été » doit trouver « été ».
+    dbapi_connection.create_function("casefold", 1, _casefold, deterministic=True)
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA journal_mode=WAL")

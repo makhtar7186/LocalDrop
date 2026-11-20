@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import threading
+from datetime import datetime
 
 from localdrop.domain.transfers.models import ChunkRecord, Transfer
+from localdrop.domain.transfers.query import TransferPage, TransferQuery
 
 
 class InMemoryTransferRepository:
@@ -62,6 +64,22 @@ class InMemoryTransferRepository:
     def received_bytes(self, transfer_id: str) -> int:
         with self._lock:
             return sum(c.size for c in self._chunks.get(transfer_id, {}).values())
+
+    def search(self, query: TransferQuery) -> TransferPage:
+        with self._lock:
+            found = [copy.copy(t) for t in self._transfers.values() if query.matches(t)]
+        found.sort(key=lambda t: (t.created_at, t.id), reverse=True)
+        return TransferPage(found[query.offset : query.offset + query.limit], len(found))
+
+    def delete_terminal_before(self, cutoff: datetime) -> int:
+        with self._lock:
+            doomed = [
+                t.id for t in self._transfers.values() if t.is_terminal and t.updated_at < cutoff
+            ]
+            for transfer_id in doomed:
+                del self._transfers[transfer_id]
+                self._chunks.pop(transfer_id, None)
+            return len(doomed)
 
     def get_chunks(self, transfer_id: str) -> dict[int, ChunkRecord]:
         with self._lock:

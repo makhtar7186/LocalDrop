@@ -7,6 +7,8 @@ import {
   type DownloadTicket,
   downloadTicketSchema,
   errorBodySchema,
+  type HistoryPage,
+  historyPageSchema,
   joinResponseSchema,
   type JoinResponse,
   type Platform,
@@ -166,4 +168,26 @@ export const receiveApi: ReceiveApi = {
     request(transferSchema, `/transfers/${enc(transferId)}/confirm`, { method: "POST", token }),
   cancel: (token, transferId) =>
     request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
+};
+
+export interface HistoryFilters {
+  direction?: "upload" | "download";
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface HistoryApi {
+  list(token: string, filters: HistoryFilters): Promise<HistoryPage>;
+}
+
+export const historyApi: HistoryApi = {
+  list: (token, filters) => {
+    const params = new URLSearchParams();
+    if (filters.direction) params.set("direction", filters.direction);
+    if (filters.q) params.set("q", filters.q);
+    params.set("limit", String(filters.limit ?? 20));
+    params.set("offset", String(filters.offset ?? 0));
+    return request(historyPageSchema, `/history?${params.toString()}`, { token });
+  },
 };

@@ -93,3 +93,17 @@ class OfferRequest(BaseModel):
 
     path: str = Field(min_length=1, max_length=4096)
     device_id: str = Field(min_length=1, max_length=64)
+
+
+class HistoryPage(BaseModel):
+    items: list[TransferOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminHistoryPage(BaseModel):
+    items: list[AdminTransferOut]
+    total: int
+    limit: int
+    offset: int

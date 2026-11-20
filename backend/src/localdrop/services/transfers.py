@@ -27,6 +27,7 @@ from localdrop.domain.transfers.models import (
     TransferStatus,
     total_chunks_for,
 )
+from localdrop.domain.transfers.query import TransferPage, TransferQuery
 from localdrop.domain.transfers.repository import TransferRepository
 from localdrop.infrastructure.storage.files import FileStorage
 from localdrop.services.events import EventBus
@@ -134,6 +135,10 @@ class TransferService:
 
     def list_all(self) -> list[Transfer]:
         return self._repo.list_all()
+
+    def history(self, query: TransferQuery) -> TransferPage:
+        """Historique filtré (FR-034). L'appelant fixe ``device_id`` pour un téléphone."""
+        return self._repo.search(query)
 
     def received_chunks(self, device: Device, transfer_id: str) -> list[int]:
         self._own_upload(device, transfer_id)

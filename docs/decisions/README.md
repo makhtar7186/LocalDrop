@@ -71,6 +71,23 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Tests** : `persistence="memory"` par défaut pour la vitesse. Le contrat des dépôts est testé sur les deux implémentations, et des tests dédiés couvrent SQLite, la migration et le redémarrage.
 - **Client, reprise après rechargement** : les envois en cours sont mémorisés dans `localStorage`. Une section « Envois interrompus » permet de resélectionner le fichier, qui est accepté sur **nom et taille** : le sélecteur iOS peut changer la date de modification. Le SHA-256 global vérifié par le serveur empêche de publier un contenu différent. Seuls les blocs manquants sont renvoyés, mais tout le fichier est relu pour le hash.
 
+## Décisions prises en phase 7 (historique, maintenance, réseau)
+
+- **Maintenance (FR-035)** : [services/maintenance.py](../../backend/src/localdrop/services/maintenance.py), au démarrage puis toutes les `maintenance_interval_minutes` (15).
+  - Transfert actif expiré : annulé (`error_code=EXPIRED`), temporaire supprimé.
+  - Échec : temporaire conservé pour diagnostic jusqu'à expiration.
+  - Orphelin : supprimé après `orphan_grace_minutes` (60), pour ne pas détruire le temporaire d'un upload en cours de création.
+  - Historique terminé : purgé après `history_retention_days` (30, `None` = sans limite).
+  - Sessions échues : passées en `expired`.
+  - **Aucun fichier final ni fichier source du PC n'est jamais supprimé.**
+- **Historique (FR-034)** : `GET /history` (appareil courant uniquement) et `GET /admin/history` (filtre `device_id`), avec `direction`, `status` (répétable), `q`, `limit` ≤ 200 et `offset`, du plus récent au plus ancien.
+  - Recherche insensible à la casse **Unicode** : une fonction SQL `casefold` est enregistrée sur chaque connexion, car `lower()` de SQLite ne traite que l'ASCII.
+  - Les jokers LIKE saisis (`%`, `_`) sont pris littéralement.
+- **Changement de réseau (FR-003)** : [server.py](../../backend/src/localdrop/server.py) (`LocalServer`). Une nouvelle adresse privée déclenche un **redémarrage propre** d'Uvicorn, uniquement par son API publique, sur les nouvelles adresses, avec un QR Code réaffiché.
+  - Les sessions et transferts étant persistés, les téléphones se reconnectent seuls (WebSocket avec backoff, uploads par réessai et `resume`).
+  - L'arrêt gracieux est limité à 3 s.
+- **Aide à la connexion (§3.3)** : sans aucun `join` `join_help_delay_seconds` (60) après le QR Code, le terminal affiche une URL de test `/api/v1/health` pour le téléphone, l'explication de l'isolation des clients, la procédure du point d'accès mobile, et l'avertissement sur un profil Windows « Public » (lu avec `Get-NetConnectionProfile`, au mieux).
+
 ## Décisions ouvertes
 
 - Progression octet par octet des téléchargements sortants (actuellement : démarré, puis servi en entier).

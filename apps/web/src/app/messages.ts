@@ -56,6 +56,31 @@ export const messages = {
   wrongFile: (name: string) =>
     `Ce n'est pas le même fichier. Sélectionnez « ${name} » (même nom et même taille).`,
 
+  historyTitle: "Historique",
+  historyAll: "Tous",
+  historySent: "Envoyés",
+  historyReceived: "Reçus",
+  historySearch: "Rechercher un fichier",
+  historyLoading: "Chargement de l'historique…",
+  historyEmpty: "Aucun transfert pour le moment.",
+  historyNoMatch: "Aucun transfert ne correspond à la recherche.",
+  historyError: "Impossible de charger l'historique : PC injoignable.",
+  historyMore: "Afficher plus",
+  historyListLabel: "Transferts passés",
+  directionSent: "Envoyé au PC",
+  directionReceived: "Reçu du PC",
+  transferStatus: {
+    created: "Créé",
+    waiting: "En attente",
+    transferring: "En cours",
+    paused: "En pause",
+    verifying: "Vérification",
+    completed: "Terminé",
+    failed: "Échec",
+    cancelled: "Annulé",
+  } as Record<string, string>,
+  expired: "Annulé (expiré)",
+
   liveOn: "● En direct",
   liveReconnecting: "○ Reconnexion…",
 } as const;
