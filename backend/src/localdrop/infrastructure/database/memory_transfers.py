@@ -56,6 +56,16 @@ class InMemoryTransferRepository:
             chunks[chunk.index] = copy.copy(chunk)
             return True
 
+    def record_chunk(self, transfer: Transfer, chunk: ChunkRecord) -> bool:
+        with self._lock:
+            chunks = self._chunks.setdefault(transfer.id, {})
+            if chunk.index in chunks or transfer.id not in self._transfers:
+                return False
+            chunks[chunk.index] = copy.copy(chunk)
+            transfer.received_bytes = sum(c.size for c in chunks.values())
+            self._transfers[transfer.id] = copy.copy(transfer)
+            return True
+
     def get_chunk(self, transfer_id: str, index: int) -> ChunkRecord | None:
         with self._lock:
             chunk = self._chunks.get(transfer_id, {}).get(index)

@@ -304,3 +304,17 @@ def test_enter_key_in_approval_dialog_refuses(
     qtbot.waitExposed(dialog)
     qtbot.keyClick(dialog, Qt.Key.Key_Return)
     qtbot.waitUntil(lambda: _status(services, intruder.id) is DeviceStatus.REJECTED, timeout=3_000)
+
+
+def test_device_name_cannot_inject_html_in_approval_dialog(
+    qtbot: QtBot, window: MainWindow, services: AppServices
+) -> None:
+    """Audit phase 10 : le nom vient du téléphone, il ne doit pas maquiller le dialogue."""
+    from PySide6.QtWidgets import QLabel
+
+    join_phone(services, '<span style="font-size:1px">x</span>Mon PC (iOS, 127.0.0.1)')
+    qtbot.waitUntil(lambda: len(window.pending_approvals()) == 1, timeout=3_000)
+    label = window.pending_approvals()[0].findChild(QLabel)
+    assert label is not None
+    assert "&lt;span" in label.text()
+    assert "<span" not in label.text()

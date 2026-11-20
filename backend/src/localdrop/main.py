@@ -18,7 +18,11 @@ from starlette.types import Scope
 
 from localdrop import __version__
 from localdrop.api.errors import install_error_handlers
-from localdrop.api.middleware import PrivateNetworkOnlyMiddleware, SecurityHeadersMiddleware
+from localdrop.api.middleware import (
+    AllowedHostMiddleware,
+    PrivateNetworkOnlyMiddleware,
+    SecurityHeadersMiddleware,
+)
 from localdrop.api.v1.router import api_router
 from localdrop.api.ws import router as ws_router
 from localdrop.core.config import Settings
@@ -72,6 +76,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     install_error_handlers(app)
     if not settings.allow_public_clients:
         app.add_middleware(PrivateNetworkOnlyMiddleware)
+    app.add_middleware(AllowedHostMiddleware)  # anti DNS rebinding (audit phase 10)
     # Ajouté en dernier = le plus externe : les en-têtes couvrent aussi les refus.
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router)

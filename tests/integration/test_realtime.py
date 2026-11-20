@@ -16,6 +16,9 @@ from localdrop.services.container import AppServices
 
 pytestmark = pytest.mark.integration
 
+# Starlette force « ws://testserver » pour un chemin relatif : Host doit être une IP.
+WS_URL = "ws://192.168.1.14:8765/ws"
+
 
 def _join(client: TestClient, services: AppServices, approve: bool = True) -> dict[str, str]:
     info = services.pairing.current_pairing()
@@ -30,7 +33,7 @@ def _join(client: TestClient, services: AppServices, approve: bool = True) -> di
 
 @contextmanager
 def _ws(client: TestClient, token: str) -> Iterator[WebSocketTestSession]:
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         ws.send_json({"type": "auth", "token": token})
         ack = ws.receive_json()
         assert ack["type"] == "auth.ok", ack
@@ -159,7 +162,7 @@ def test_FR_013_revocation_closes_socket_immediately(
 def test_authentication_failures(
     client: TestClient, first_message: dict[str, str], code: int
 ) -> None:
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         ws.send_json(first_message)
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
@@ -167,7 +170,7 @@ def test_authentication_failures(
 
 
 def test_authentication_must_be_fast(client: TestClient) -> None:
-    with client.websocket_connect("/ws") as ws, pytest.raises(WebSocketDisconnect) as closed:
+    with client.websocket_connect(WS_URL) as ws, pytest.raises(WebSocketDisconnect) as closed:
         ws.receive_json()  # aucun message d'authentification envoyé
     assert closed.value.code == 4408
 
@@ -179,7 +182,7 @@ def test_rejected_device_is_refused(
     admin.post(
         "/api/v1/sessions/approve", json={"device_id": joined["device_id"], "approve": False}
     )
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         ws.send_json({"type": "auth", "token": joined["device_token"]})
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
@@ -189,7 +192,7 @@ def test_rejected_device_is_refused(
 def test_cross_site_origin_is_refused(client: TestClient) -> None:
     with (
         pytest.raises(WebSocketDisconnect) as closed,
-        client.websocket_connect("/ws", headers={"Origin": "http://site-malveillant.example"}),
+        client.websocket_connect(WS_URL, headers={"Origin": "http://site-malveillant.example"}),
     ):
         pass
     assert closed.value.code == 4403
@@ -198,7 +201,7 @@ def test_cross_site_origin_is_refused(client: TestClient) -> None:
 def test_admin_sees_everything_from_loopback(
     client: TestClient, admin: TestClient, services: AppServices
 ) -> None:
-    with admin.websocket_connect("/ws") as ws:
+    with admin.websocket_connect(WS_URL) as ws:
         ws.send_json({"type": "auth", "admin_token": services.admin_token})
         assert ws.receive_json()["data"]["role"] == "admin"
         joined = _join(client, services, approve=False)

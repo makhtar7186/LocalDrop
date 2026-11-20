@@ -180,3 +180,22 @@ def test_unknown_device_and_token(service: PairingService) -> None:
         service.approve("inconnu")
     with pytest.raises(UnauthorizedError):
         service.device_for_token("jeton-inconnu")
+
+
+def test_last_seen_is_written_at_most_every_30_seconds(
+    service: PairingService, clock: Clock
+) -> None:
+    """Optimisation phase 10 : pas un commit SQLite par bloc reçu."""
+    result = _join(service)
+    service.approve(result.device.id)
+    clock.advance(seconds=30)
+    service.authenticate(result.device_token)
+    written = service.device_for_token(result.device_token).last_seen_at
+
+    clock.advance(seconds=10)
+    service.authenticate(result.device_token)
+    assert service.device_for_token(result.device_token).last_seen_at == written
+
+    clock.advance(seconds=20)
+    service.authenticate(result.device_token)
+    assert service.device_for_token(result.device_token).last_seen_at == clock.now

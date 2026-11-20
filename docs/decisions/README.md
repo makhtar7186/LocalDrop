@@ -120,10 +120,32 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Barrière d'erreur** : une erreur de rendu affiche un écran « Recharger la page », jamais une page blanche.
 - **Bundle** : passage à `zod/mini` (même validation, API fonctionnelle) : 110,7 → 94,4 Ko compressés. Le reste est surtout React 19.
 
+## Décisions prises en phase 10 (sécurité, tests réseau, optimisation)
+
+Rapport complet : [audit-phase-10.md](../security/audit-phase-10.md).
+
+- **En-tête `Host` limité aux IP littérales et à `localhost`** (`AllowedHostMiddleware`), contre le DNS rebinding. Le QR Code, le desktop et la saisie manuelle n'utilisent que des IP. Un nom d'hôte (`mon-pc.local`) devrait être ajouté explicitement.
+  - Dans les tests, `TestClient` doit viser une IP (`base_url`), y compris pour le WebSocket : Starlette impose sinon `ws://testserver`.
+- **CSP sur les pages de l'interface mobile** : aucun script en ligne ni externe. `'unsafe-eval'` est conservé pour le WebAssembly de `hash-wasm` sur Safari antérieur à iOS 16, qui ignore `'wasm-unsafe-eval'`. Les réponses `/api` n'ont pas de CSP de page (les téléchargements gardent `sandbox`).
+- **Nom d'appareil échappé** dans le dialogue d'approbation : toute donnée venant du téléphone affichée en texte enrichi Qt doit passer par `html.escape`.
+- **Ressources bornées par téléphone** : 32 envois non terminés au maximum (`max_active_uploads_per_device`). L'espace disque libre doit couvrir le nouvel envoi **et** le reste de tous les envois non terminés.
+- **Optimisations mesurées, invariants inchangés** (`fsync` et hash par bloc conservés). Coût par bloc côté PC : 21 → 12,5 ms.
+  - `record_chunk` enregistre le bloc et la progression dans **une** transaction (un commit et un fsync de moins).
+  - Les fichiers temporaires restent **ouverts** entre deux blocs, dans un cache borné de 8. Sous Windows, fermer un fichier modifié déclenche l'analyse antivirus. Un descripteur est retiré du cache pendant l'écriture, et `close_temp` est appelé avant tout renommage ou suppression (Windows refuse de renommer un fichier ouvert). `AppServices.close()` ferme le cache.
+  - « Vu pour la dernière fois » n'est écrit qu'une fois par 30 s, et non à chaque requête.
+- **Taille de bloc maintenue à 4 Mio** après banc de mesure (`python -m localdrop.bench`). Le PC absorbe environ 88 Mio/s en envoi, le Wi-Fi sera le goulot. Voir [e2e-matrix.md](../testing/e2e-matrix.md).
+- **Tests de bout en bout automatisés** :
+  - sur vrais sockets (`tests/e2e/test_real_network.py`), avec `PhoneClient`, client en bibliothèque standard ;
+  - en vrai navigateur sans interface (`tests/e2e/test_browser.py`, protocole DevTools, Chrome ou Edge).
+  - Ils ne remplacent pas la matrice manuelle (Safari iOS, Wi-Fi réel, pare-feu).
+- **Accueil mobile** : la carte d'état de l'appairage disparaît une fois connecté. Elle faisait doublon avec « Connecté à <PC> », ce que les captures du test navigateur ont révélé.
+
 ## Décisions ouvertes
 
 - Pause et reprise d'un upload décidées sur le PC (distinguer la cause de la pause).
 - Progression octet par octet des téléchargements sortants (actuellement : démarré, puis servi en entier).
-- Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement) : à évaluer en phase 9.
-- Persistance des appareils approuvés après redémarrage du PC (ou nouvel appairage obligatoire).
-- Politique de conservation de l'historique.
+- Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement).
+- Deux blocs en vol par envoi : le lien reste inactif pendant le traitement d'un bloc côté PC (~12 ms), soit environ 6 % sur un Wi-Fi à 20 Mio/s. Ce n'est pas utile tant que la matrice réelle ne le montre pas.
+- HTTPS local ou chiffrement applicatif (ADR-006) : à décider avant toute utilisation sur réseau partagé.
+
+Décisions closes : les appareils approuvés sont persistés et restent valables après redémarrage (phase 6) ; l'historique est conservé 30 jours, paramétrable (phase 7).

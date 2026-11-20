@@ -101,6 +101,7 @@ def build_services(
     network.refresh()
 
     storage = FileStorage(settings.receive_dir, free_space_margin=settings.free_space_margin)
+    closers.append(storage.close_all)
     transfers = TransferService(
         transfer_repository,
         storage,
@@ -108,6 +109,7 @@ def build_services(
         chunk_size=settings.chunk_size,
         retention=timedelta(hours=settings.temp_retention_hours),
         max_file_size=settings.max_file_size,
+        max_active_uploads=settings.max_active_uploads_per_device,
     )
     downloads = DownloadService(
         transfer_repository,

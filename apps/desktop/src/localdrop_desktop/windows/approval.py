@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
@@ -21,9 +22,11 @@ class ApprovalDialog(QDialog):
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        name = str(device.get("display_name", "Appareil"))
+        # Nom choisi par le téléphone : échappé, sinon du HTML pourrait maquiller le
+        # dialogue (fausse IP, faux texte rassurant) sous le texte enrichi.
+        name = escape(str(device.get("display_name", "Appareil")))
         platform = PLATFORM.get(str(device.get("platform", "other")), "Autre")
-        ip = str(device.get("client_ip", "?"))
+        ip = escape(str(device.get("client_ip", "?")))
         text = QLabel(
             f"<b>« {name} »</b> ({platform}, {ip}) demande à se connecter à ce PC.<br><br>"
             "Autorisez-le uniquement si c'est votre téléphone et qu'il vient de scanner "

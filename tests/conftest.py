@@ -15,6 +15,8 @@ from localdrop.services.container import AppServices, build_services
 
 PHONE_IP = "192.168.1.50"
 PC_LAN_IP = "192.168.1.14"
+# Adresse telle que le téléphone la voit (QR Code) : l'en-tête Host doit être une IP.
+SERVER_URL = f"http://{PC_LAN_IP}:8765"
 
 
 @pytest.fixture
@@ -54,7 +56,13 @@ def make_client(app: FastAPI) -> Iterator[Callable[..., TestClient]]:
     clients: list[TestClient] = []
 
     def _make(ip: str = PHONE_IP, headers: dict[str, str] | None = None) -> TestClient:
-        client = TestClient(app, client=(ip, 50000), headers=headers, raise_server_exceptions=False)
+        client = TestClient(
+            app,
+            base_url=SERVER_URL,
+            client=(ip, 50000),
+            headers=headers,
+            raise_server_exceptions=False,
+        )
         client.__enter__()
         clients.append(client)
         return client

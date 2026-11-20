@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     max_file_size: int | None = Field(default=None, ge=0)  # None = limité par le disque
     download_ticket_ttl_seconds: int = Field(default=900, ge=30)  # liens de téléchargement
     free_space_margin: int = Field(default=64 * MIB, ge=0)  # réserve laissée libre sur le disque
+    # Plafond d'envois non terminés par téléphone (audit phase 10 : épuisement de ressources)
+    max_active_uploads_per_device: int = Field(default=32, ge=1)
 
     # Maintenance (FR-035, §13.3)
     maintenance_interval_minutes: float = Field(default=15, ge=0)  # 0 = au démarrage seulement

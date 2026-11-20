@@ -4,6 +4,9 @@
   même volume que la destination, donc publication atomique par renommage.
 - Publication sans écrasement (FR-028), chemins confinés au dossier de réception.
 - Ne jamais ouvrir ni exécuter un fichier reçu (§12.2-9).
+- Les fichiers temporaires en cours d'écriture restent ouverts entre deux blocs
+  (cache borné) : sous Windows, fermer un fichier modifié déclenche l'analyse
+  antivirus, qui coûtait plus que l'écriture elle-même (mesure de la phase 10).
 """
 
 from __future__ import annotations
@@ -15,8 +18,11 @@ import os
 import re
 import shutil
 import sys
+import threading
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 
 from localdrop.core.errors import LocalDropError
 from localdrop.domain.transfers.filenames import candidate_name
@@ -27,6 +33,7 @@ TEMP_DIR_NAME = ".localdrop-tmp"
 _TEMP_ID = re.compile(r"^[0-9a-f]{32}$")
 _READ_BLOCK = 1024 * 1024
 _MAX_COLLISIONS = 10_000
+DEFAULT_MAX_OPEN_TEMP_FILES = 8
 
 
 class StorageError(LocalDropError):
@@ -45,10 +52,21 @@ class UnsafePathError(StorageError):
 
 
 class FileStorage:
-    def __init__(self, receive_dir: Path, *, free_space_margin: int) -> None:
+    def __init__(
+        self,
+        receive_dir: Path,
+        *,
+        free_space_margin: int,
+        max_open_files: int = DEFAULT_MAX_OPEN_TEMP_FILES,
+    ) -> None:
         self.receive_dir = receive_dir
         self.temp_dir = receive_dir / TEMP_DIR_NAME
         self._margin = free_space_margin
+        self._max_open = max_open_files
+        # Descripteurs inactifs, du moins au plus récemment utilisé. Un descripteur en
+        # cours d'écriture est retiré du cache : aucune éviction ne peut le fermer.
+        self._open: OrderedDict[str, BinaryIO] = OrderedDict()
+        self._open_lock = threading.Lock()
 
     # ------------------------------------------------------------------ dossiers
     def ensure_directories(self) -> None:
@@ -71,13 +89,14 @@ class FileStorage:
         return self._confined(self.temp_dir, f"{transfer_id}.part")
 
     # ------------------------------------------------------------------ écriture
-    def check_free_space(self, size: int) -> None:
+    def check_free_space(self, size: int, *, reserved: int = 0) -> None:
+        """``reserved`` : octets déjà promis à d'autres envois non terminés."""
         self.ensure_directories()
         free = shutil.disk_usage(self.temp_dir).free
-        if free < size + self._margin:
+        if free < size + reserved + self._margin:
             raise InsufficientDiskSpaceError(
                 "Espace disque insuffisant sur le PC",
-                details={"required": size, "available": free},
+                details={"required": size, "available": max(free - reserved, 0)},
             )
 
     def create_temp(self, transfer_id: str) -> Path:
@@ -88,20 +107,63 @@ class FileStorage:
         return path
 
     def write_chunk(self, transfer_id: str, offset: int, data: bytes) -> None:
-        """Écriture positionnelle durable (idempotente : réécrire un bloc est sans risque)."""
-        path = self.temp_path(transfer_id)
+        """Écriture positionnelle durable (idempotente : réécrire un bloc est sans risque).
+
+        Un seul écrivain par transfert (verrou du service) : le descripteur emprunté au
+        cache n'est partagé avec personne pendant l'écriture.
+        """
+        fh = self._checkout(transfer_id)
         try:
-            with path.open("r+b") as fh:
-                fh.seek(offset)
-                fh.write(data)
-                fh.flush()
-                os.fsync(fh.fileno())
-        except FileNotFoundError as exc:
-            raise StorageError("Fichier temporaire introuvable", code="TEMP_FILE_MISSING") from exc
+            fh.seek(offset)
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         except OSError as exc:
+            fh.close()
             if _is_disk_full(exc):
                 raise InsufficientDiskSpaceError("Espace disque insuffisant sur le PC") from exc
             raise
+        self._checkin(transfer_id, fh)
+
+    def _checkout(self, transfer_id: str) -> BinaryIO:
+        path = self.temp_path(transfer_id)
+        with self._open_lock:
+            cached = self._open.pop(transfer_id, None)
+        if cached is not None:
+            return cached
+        try:
+            return path.open("r+b")
+        except FileNotFoundError as exc:
+            raise StorageError("Fichier temporaire introuvable", code="TEMP_FILE_MISSING") from exc
+
+    def _checkin(self, transfer_id: str, fh: BinaryIO) -> None:
+        evicted: list[BinaryIO] = []
+        with self._open_lock:
+            self._open[transfer_id] = fh
+            while len(self._open) > self._max_open:
+                evicted.append(self._open.popitem(last=False)[1])
+        for old in evicted:
+            old.close()
+
+    def close_temp(self, transfer_id: str) -> None:
+        """Ferme le descripteur en cache (avant renommage ou suppression sous Windows)."""
+        with self._open_lock:
+            fh = self._open.pop(transfer_id, None)
+        if fh is not None:
+            fh.close()
+
+    def close_all(self) -> None:
+        """Ferme tous les descripteurs (arrêt du serveur)."""
+        with self._open_lock:
+            handles = list(self._open.values())
+            self._open.clear()
+        for fh in handles:
+            fh.close()
+
+    @property
+    def open_temp_count(self) -> int:
+        with self._open_lock:
+            return len(self._open)
 
     def temp_size(self, transfer_id: str) -> int:
         return self.temp_path(transfer_id).stat().st_size
@@ -130,6 +192,7 @@ class FileStorage:
         return sorted(p.stem for p in self.temp_dir.glob("*.part") if _TEMP_ID.fullmatch(p.stem))
 
     def delete_temp(self, transfer_id: str) -> None:
+        self.close_temp(transfer_id)
         with contextlib.suppress(FileNotFoundError):
             self.temp_path(transfer_id).unlink()
 
@@ -137,6 +200,7 @@ class FileStorage:
     def publish(self, transfer_id: str, safe_name: str) -> Path:
         """Déplace le fichier vérifié dans le dossier de réception, sans jamais écraser."""
         source = self.temp_path(transfer_id)
+        self.close_temp(transfer_id)
         for attempt in range(_MAX_COLLISIONS):
             target = self._confined(self.receive_dir, candidate_name(safe_name, attempt))
             try:

@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 
+# « Vu pour la dernière fois » : au plus une écriture par intervalle. Sans cela, chaque
+# bloc reçu déclenchait un commit SQLite (synchronous=FULL, donc un fsync) de plus.
+LAST_SEEN_WRITE_INTERVAL = timedelta(seconds=30)
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -190,10 +194,12 @@ class PairingService:
             if device.status is DeviceStatus.PENDING:
                 raise ForbiddenError("En attente d'approbation", code="DEVICE_PENDING")
             now = self._clock()
-            if device.status is DeviceStatus.DISCONNECTED:
+            changed = device.status is DeviceStatus.DISCONNECTED
+            if changed:
                 device.transition(DeviceStatus.CONNECTED, now)
-            device.last_seen_at = now
-            self._repo.save_device(device)
+            if changed or now - device.last_seen_at >= LAST_SEEN_WRITE_INTERVAL:
+                device.last_seen_at = now
+                self._repo.save_device(device)
             return device
 
     def active_device(self, device_id: str) -> Device:

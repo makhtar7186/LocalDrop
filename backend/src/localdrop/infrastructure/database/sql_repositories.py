@@ -251,6 +251,35 @@ class SqlTransferRepository:
             return False  # contrainte unique (transfer_id, chunk_index)
         return True
 
+    def record_chunk(self, transfer: Transfer, chunk: ChunkRecord) -> bool:
+        # Une seule transaction, donc un seul commit (et un seul fsync) par bloc reçu.
+        try:
+            with self._sessions.begin() as db:
+                db.add(
+                    ChunkRow(
+                        transfer_id=transfer.id,
+                        chunk_index=chunk.index,
+                        size=chunk.size,
+                        sha256=chunk.sha256,
+                        received_at=chunk.received_at,
+                    )
+                )
+                db.flush()
+                total = db.scalar(
+                    select(func.coalesce(func.sum(ChunkRow.size), 0)).where(
+                        ChunkRow.transfer_id == transfer.id
+                    )
+                )
+                transfer.received_bytes = int(total or 0)
+                values = _transfer_values(transfer)
+                del values["id"]
+                db.execute(
+                    update(TransferRow).where(TransferRow.id == transfer.id).values(**values)
+                )
+        except IntegrityError:
+            return False
+        return True
+
     def search(self, query: TransferQuery) -> TransferPage:
         conditions: list[Any] = []
         if query.device_id is not None:

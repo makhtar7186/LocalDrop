@@ -110,7 +110,9 @@ it("analyse le hash de navigation", () => {
 
 it("§14.3 : accueil avec nom du PC, actions et pastille de fichiers en attente", async () => {
   renderApp();
-  expect(await screen.findByText("Connecté à PC-SALON")).toBeInTheDocument();
+  expect(await screen.findByText("Connecté à PC-SALON")).toBeVisible();
+  // Pas de doublon : la carte d'état de l'appairage s'efface une fois connecté.
+  expect(screen.getByTestId("pairing-status")).not.toBeVisible();
   expect(await screen.findByText("2 fichiers vous attendent")).toBeInTheDocument();
   const receiveTab = within(nav()).getByRole("button", { name: /Recevoir/ });
   expect(within(receiveTab).getByLabelText("2 fichiers à recevoir")).toHaveTextContent("2");

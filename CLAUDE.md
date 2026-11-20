@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 9 terminées.** L'application Windows (PySide6) et l'interface mobile complète sont disponibles. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
+**Avancement : phases 0 à 10 terminées (version candidate).** L'application Windows (PySide6) et l'interface mobile complète sont disponibles, auditées ([audit-phase-10.md](docs/security/audit-phase-10.md)) et testées de bout en bout sur vrais sockets et en vrai navigateur. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -40,12 +40,20 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - Les schémas utilisent **`zod/mini`** (`import * as z from "zod/mini"`). Les modificateurs sont des fonctions : `z.nullable(x)`, `.check(z.minLength(1))`, `z.int().check(z.nonnegative())`.
   - Les tests qui interagissent avec un écran doivent d'abord y **naviguer** : les requêtes par rôle ignorent les éléments masqués.
 
-Prochaine étape : phase 10 (sécurité, tests réseau réels, optimisation : matrice e2e du §16.3, audit de sécurité). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 10 : audit de sécurité, tests de bout en bout, optimisation.
+  - **`Host` limité aux IP et à `localhost`** (`AllowedHostMiddleware`, anti DNS rebinding). Un `TestClient` doit viser une IP : `base_url=SERVER_URL` dans `conftest.py`. Pour le WebSocket, passer une URL absolue `ws://192.168.1.14:8765/ws`, car Starlette impose sinon `ws://testserver`.
+  - CSP sur les pages web (`WEB_UI_CSP`) : pas de script en ligne dans `index.html`.
+  - Toute donnée venant du téléphone affichée dans un `QLabel` en texte enrichi passe par `html.escape`.
+  - [bench.py](backend/src/localdrop/bench.py) fournit `PhoneClient` (client « téléphone » en bibliothèque standard, keep-alive) et `RunningServer` (vrai serveur dans un thread), réutilisés par `tests/e2e/`.
+  - FastAPI 0.165 n'aplatit plus les routeurs inclus (`app.routes` contient des `_IncludedRouter`) : faire l'inventaire des routes avec `app.openapi()["paths"]`.
+
+Prochaine étape : phase 11 (PyInstaller, documentation utilisateur), puis la matrice e2e manuelle avec de vrais téléphones ([e2e-matrix.md](docs/testing/e2e-matrix.md)). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
 - [domain/transfers/](backend/src/localdrop/domain/transfers/) : machine à états (table identique au §8.3, testée exhaustivement) et `sanitize_filename` (testé avec Hypothesis).
-- [infrastructure/storage/files.py](backend/src/localdrop/infrastructure/storage/files.py) : temporaires `<id>.part` dans `<réception>/.localdrop-tmp`, publication sans écrasement.
+- [infrastructure/storage/files.py](backend/src/localdrop/infrastructure/storage/files.py) : temporaires `<id>.part` dans `<réception>/.localdrop-tmp`, publication sans écrasement. Les temporaires restent **ouverts** entre deux blocs (cache borné : fermer un fichier modifié déclenche l'antivirus Windows). Appeler `close_temp(id)` avant tout renommage ou suppression ; `publish` et `delete_temp` le font déjà. Une fixture qui crée un `FileStorage` doit appeler `close_all()`.
+- Un bloc s'enregistre par `TransferRepository.record_chunk` : bloc et progression dans une seule transaction.
 - Côté web : [uploader.ts](apps/web/src/services/uploader.ts) hache avec `hash-wasm`, jamais `crypto.subtle`. [uploadQueue.ts](apps/web/src/services/uploadQueue.ts) gère la file hors de React, via `useSyncExternalStore`.
 - Les types Zod de [schemas.ts](apps/web/src/services/schemas.ts) doivent suivre les schémas Pydantic. Tout changement de forme de l'API se reporte des deux côtés.
 
@@ -124,6 +132,11 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 npm --prefix apps/web run dev | build | lint | typecheck
 npm --prefix apps/web test                                   # un fichier : npm --prefix apps/web test -- tests/App.test.tsx
 
+# Bout en bout et débit (phase 10)
+.venv/Scripts/pytest tests/e2e                               # vrais sockets + vrai navigateur (Chrome/Edge sans interface, page compilée requise)
+LOCALDROP_SCREENSHOTS=captures .venv/Scripts/pytest tests/e2e/test_browser.py   # captures d'écran au format téléphone
+.venv/Scripts/python -m localdrop.bench [--size-mib 128 --repeat 3 --chunks-mib 1 4 8]   # débit par taille de bloc (loopback)
+
 # Packaging (phase 11)
 pyinstaller localdrop.spec --noconfirm --clean
 ```
@@ -159,7 +172,8 @@ apps/web (React, servi en statique) ──HTTP/WS LAN──► api/v1 → servic
 
 - La page mobile est en HTTP sur une IP LAN, donc **pas de secure context** : `crypto.subtle`, `crypto.randomUUID`, Clipboard API, Service Worker et Wake Lock sont indisponibles. Hacher avec `hash-wasm`.
 - iOS Safari suspend les pages en arrière-plan : garder la page active, et ne pas annoncer la reprise des téléchargements iOS sans validation e2e.
-- Un lien `<a download>` ne peut pas envoyer `Authorization` : il faut un ticket de téléchargement court (à figer par ADR).
+- Un lien `<a download>` ne peut pas envoyer `Authorization` : on utilise un ticket de téléchargement court.
+- Mesurer avant d'optimiser : sous Windows, l'antivirus et les `fsync` dominent. La première mesure d'une série peut être deux fois plus lente (fichier en cours d'analyse).
 - Pare-feu Windows et profil réseau « Public », isolation des clients sur certains points d'accès : prévoir un diagnostic côté desktop.
 
 ## Livraison

@@ -16,6 +16,7 @@ from localdrop.services.container import build_services
 
 pytestmark = pytest.mark.integration
 PHONE = ("192.168.1.50", 50000)
+SERVER = "http://192.168.1.14:8765"
 CHUNK = 64 * 1024
 DATA = os.urandom(CHUNK * 2 + 321)
 PARTS = [DATA[i : i + CHUNK] for i in range(0, len(DATA), CHUNK)]
@@ -45,7 +46,7 @@ def running_server(settings: Settings) -> Iterator[tuple[TestClient, object]]:
         settings, address_provider=lambda: [AddressCandidate(1, "192.168.1.14", "Wi-Fi")]
     )
     try:
-        with TestClient(create_app(settings, services), client=PHONE) as client:
+        with TestClient(create_app(settings, services), client=PHONE, base_url=SERVER) as client:
             yield client, services
     finally:
         services.close()

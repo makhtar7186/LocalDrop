@@ -96,7 +96,9 @@ async def put_chunk(
             "En-tête X-Chunk-SHA256 invalide", code="CHUNK_HASH_HEADER_INVALID", status_code=422
         )
     # Valide transfert et index avant de lire le corps ; la lecture est bornée.
-    expected = services.transfers.expected_chunk_size(device, transfer_id, index)
+    expected = await run_in_threadpool(
+        services.transfers.expected_chunk_size, device, transfer_id, index
+    )
     declared_length = request.headers.get("content-length")
     if (
         declared_length is not None

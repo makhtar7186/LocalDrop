@@ -1,6 +1,7 @@
 import os
 import shutil
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -9,6 +10,7 @@ import pytest
 from localdrop.infrastructure.storage.files import (
     FileStorage,
     InsufficientDiskSpaceError,
+    StorageError,
     UnsafePathError,
 )
 
@@ -17,8 +19,10 @@ TID = "0" * 31 + "1"
 
 
 @pytest.fixture
-def storage(tmp_path: Path) -> FileStorage:
-    return FileStorage(tmp_path / "recus", free_space_margin=0)
+def storage(tmp_path: Path) -> Iterator[FileStorage]:
+    store = FileStorage(tmp_path / "recus", free_space_margin=0, max_open_files=2)
+    yield store
+    store.close_all()
 
 
 def test_temp_file_lives_next_to_destination(storage: FileStorage) -> None:
@@ -91,3 +95,38 @@ def test_delete_temp_is_idempotent(storage: FileStorage) -> None:
     storage.delete_temp(TID)
     storage.delete_temp(TID)
     assert not os.path.exists(storage.temp_path(TID))  # noqa: PTH110
+
+
+def _tid(n: int) -> str:
+    return f"{n:032x}"
+
+
+def test_temp_files_stay_open_between_chunks_within_a_bound(storage: FileStorage) -> None:
+    """Optimisation phase 10 : pas de fermeture (scan antivirus) à chaque bloc."""
+    for n in (1, 2, 3):
+        storage.create_temp(_tid(n))
+        storage.write_chunk(_tid(n), 0, b"abcd")
+    assert storage.open_temp_count == 2  # le plus ancien a été fermé (cache borné)
+    storage.write_chunk(_tid(1), 4, b"efgh")  # rouvert à la demande
+    assert storage.temp_path(_tid(1)).read_bytes() == b"abcdefgh"
+    storage.close_all()
+    assert storage.open_temp_count == 0
+
+
+def test_open_temp_file_can_still_be_published_and_deleted(storage: FileStorage) -> None:
+    storage.create_temp(_tid(1))
+    storage.write_chunk(_tid(1), 0, b"data")
+    storage.create_temp(_tid(2))
+    storage.write_chunk(_tid(2), 0, b"data")
+
+    published = storage.publish(_tid(1), "photo.jpg")  # renommage impossible si encore ouvert
+    assert published.read_bytes() == b"data"
+    storage.delete_temp(_tid(2))
+    assert not storage.temp_exists(_tid(2))
+    assert storage.open_temp_count == 0
+
+
+def test_writing_to_a_missing_temp_file_is_an_explicit_error(storage: FileStorage) -> None:
+    with pytest.raises(StorageError) as exc:
+        storage.write_chunk(_tid(9), 0, b"x")
+    assert exc.value.code == "TEMP_FILE_MISSING"

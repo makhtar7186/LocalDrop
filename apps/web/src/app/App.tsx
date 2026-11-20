@@ -120,8 +120,9 @@ export function App({
   }, [screen]);
 
   const connected = state.kind === "connected";
-  // L'état de connexion est toujours visible, sauf sur les écrans de travail une fois connecté.
-  const showStatus = !connected || screen === "accueil";
+  // Carte d'état visible tant que la connexion n'est pas établie. Une fois connecté,
+  // l'accueil affiche déjà « Connecté à <PC> » (doublon vu sur capture, phase 10).
+  const showStatus = !connected;
 
   return (
     <div className={`mx-auto flex min-h-screen max-w-md flex-col ${connected ? "pb-24" : ""}`}>

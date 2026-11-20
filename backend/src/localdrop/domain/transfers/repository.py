@@ -27,6 +27,14 @@ class TransferRepository(Protocol):
         """Ajoute un bloc validé. False si l'index existe déjà (contrainte unique)."""
         ...
 
+    def record_chunk(self, transfer: Transfer, chunk: ChunkRecord) -> bool:
+        """Ajoute un bloc validé ET enregistre le transfert dans une même transaction.
+
+        ``transfer.received_bytes`` est recalculé depuis les blocs avant l'écriture.
+        False (rien n'est écrit) si l'index existe déjà.
+        """
+        ...
+
     def get_chunks(self, transfer_id: str) -> dict[int, ChunkRecord]: ...
 
     def get_chunk(self, transfer_id: str, index: int) -> ChunkRecord | None: ...

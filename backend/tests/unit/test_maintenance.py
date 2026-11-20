@@ -1,4 +1,5 @@
 import os
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -87,8 +88,10 @@ class World:
 
 
 @pytest.fixture
-def world(tmp_path: Path) -> World:
-    return World(tmp_path)
+def world(tmp_path: Path) -> Iterator[World]:
+    built = World(tmp_path)
+    yield built
+    built.storage.close_all()  # fichiers temporaires gardés ouverts entre deux blocs
 
 
 def test_FR_035_expired_active_upload_is_cancelled_and_its_temp_deleted(world: World) -> None:

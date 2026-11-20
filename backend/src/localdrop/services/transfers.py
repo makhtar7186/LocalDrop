@@ -14,7 +14,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from localdrop.core.errors import ConflictError, LocalDropError, NotFoundError
+from localdrop.core.errors import (
+    ConflictError,
+    LocalDropError,
+    NotFoundError,
+    TooManyRequestsError,
+)
 from localdrop.domain.devices.models import Device
 from localdrop.domain.sessions.tokens import generate_id
 from localdrop.domain.transfers.filenames import sanitize_filename
@@ -65,6 +70,7 @@ class TransferService:
         chunk_size: int,
         retention: timedelta,
         max_file_size: int | None = None,
+        max_active_uploads: int = 32,
         clock: Clock = utc_now,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -74,6 +80,9 @@ class TransferService:
         self._chunk_size = chunk_size
         self._retention = retention
         self._max_file_size = max_file_size
+        self._max_active_uploads = max_active_uploads
+        # Sérialise les créations : le calcul de l'espace réservé reste cohérent.
+        self._create_lock = threading.Lock()
         self._clock = clock
         self._monotonic = monotonic
         self._locks_guard = threading.Lock()
@@ -86,7 +95,25 @@ class TransferService:
             raise FileTooLargeError(
                 "Fichier trop volumineux", details={"max_file_size": self._max_file_size}
             )
-        self._storage.check_free_space(size)
+        with self._create_lock:
+            return self._create_upload_locked(device, filename, size)
+
+    def _create_upload_locked(self, device: Device, filename: str, size: int) -> Transfer:
+        active = [
+            t
+            for t in self._repo.list_all()
+            if t.direction is Direction.UPLOAD and t.status in ACTIVE_STATUSES
+        ]
+        if sum(t.device_id == device.id for t in active) >= self._max_active_uploads:
+            raise TooManyRequestsError(
+                "Trop d'envois en cours depuis ce téléphone",
+                code="TOO_MANY_ACTIVE_TRANSFERS",
+                details={"max_active": self._max_active_uploads},
+            )
+        # L'espace promis aux envois non terminés est réservé : plusieurs envois
+        # simultanés ne peuvent pas, ensemble, dépasser la place libre.
+        reserved = sum(max(t.total_size - t.received_bytes, 0) for t in active)
+        self._storage.check_free_space(size, reserved=reserved)
 
         now = self._clock()
         transfer = Transfer(
@@ -210,10 +237,8 @@ class TransferService:
             # Durable d'abord, enregistré ensuite : un bloc n'est confirmé qu'après les deux.
             self._storage.write_chunk(transfer_id, transfer.chunk_offset(index), data)
             now = self._clock()
-            self._repo.add_chunk(transfer_id, ChunkRecord(index, len(data), actual, now))
-            transfer.received_bytes = self._repo.received_bytes(transfer_id)
             transfer.updated_at = now
-            self._repo.save(transfer)
+            self._repo.record_chunk(transfer, ChunkRecord(index, len(data), actual, now))
 
         self._publish_progress(transfer)
         return transfer, False

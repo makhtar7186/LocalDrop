@@ -111,6 +111,7 @@ export const messages = {
 const uploadErrors: Record<string, string> = {
   INSUFFICIENT_DISK_SPACE: "Échec : espace disque insuffisant sur le PC",
   FILE_TOO_LARGE: "Échec : fichier trop volumineux",
+  TOO_MANY_ACTIVE_TRANSFERS: "Échec : trop d'envois inachevés sur le PC, réessayez plus tard",
   FILE_HASH_MISMATCH: "Échec : fichier altéré pendant le transfert, renvoyez-le",
   FILE_SIZE_MISMATCH: "Échec : taille incorrecte, renvoyez le fichier",
   NETWORK_UNREACHABLE: "Échec : PC injoignable",

@@ -193,6 +193,29 @@ def test_transfers_conditional_update_and_chunks(repos: Repos) -> None:
     assert [t.id for t in transfers.list_for_device("d1")] == ["t1"]
 
 
+def test_record_chunk_saves_chunk_and_progress_atomically(repos: Repos) -> None:
+    """Optimisation phase 10 : bloc + progression en une seule transaction."""
+    sessions, transfers = repos
+    sessions.save_session(_session())
+    sessions.save_device(_device())
+    transfer = _transfer()
+    transfers.add(transfer)
+
+    assert transfers.record_chunk(transfer, ChunkRecord(0, 4, "b" * 64, NOW)) is True
+    assert transfers.record_chunk(transfer, ChunkRecord(1, 4, "c" * 64, NOW)) is True
+    assert transfer.received_bytes == 8
+    stored = transfers.get("t1")
+    assert stored is not None and stored.received_bytes == 8
+
+    # Index déjà validé : rien n'est écrit, la progression ne bouge pas.
+    transfer.received_bytes = 999
+    assert transfers.record_chunk(transfer, ChunkRecord(0, 4, "d" * 64, NOW)) is False
+    stored = transfers.get("t1")
+    assert stored is not None and stored.received_bytes == 8
+    assert transfers.get_chunk("t1", 0) is not None
+    assert transfers.get_chunk("t1", 0).sha256 == "b" * 64  # type: ignore[union-attr]
+
+
 # ----------------------------------------------------------------------------- redémarrage
 @pytest.fixture
 def sqlite_settings(tmp_path: Path) -> Settings:

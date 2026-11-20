@@ -1,6 +1,7 @@
 import hashlib
 import os
 import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -52,8 +53,10 @@ def events() -> list[Event]:
 
 
 @pytest.fixture
-def storage(tmp_path: Path) -> FileStorage:
-    return FileStorage(tmp_path / "recus", free_space_margin=0)
+def storage(tmp_path: Path) -> Iterator[FileStorage]:
+    store = FileStorage(tmp_path / "recus", free_space_margin=0)
+    yield store
+    store.close_all()  # fichiers temporaires gardés ouverts entre deux blocs
 
 
 @pytest.fixture

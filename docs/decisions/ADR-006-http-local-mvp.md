@@ -23,3 +23,8 @@ Pour le MVP :
 ## Conséquences
 - Pas de « secure context » côté navigateur : `crypto.subtle`, `crypto.randomUUID`, Clipboard API, Service Worker et Wake Lock sont indisponibles. Il faut prévoir des solutions de repli.
 - Un ADR ultérieur définira la stratégie HTTPS de production.
+
+## Mesures complémentaires (phase 10)
+- En-tête `Host` limité aux IP et à `localhost` (anti DNS rebinding).
+- `Content-Security-Policy` sur les pages de l'interface mobile, le jeton de l'appareil étant dans le `localStorage`.
+- Audit : [docs/security/audit-phase-10.md](../security/audit-phase-10.md).
