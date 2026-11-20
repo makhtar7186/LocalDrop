@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     max_concurrent_transfers: int = Field(default=2, ge=1, le=8)
     temp_retention_hours: int = Field(default=24, ge=1)
 
+    # Réseau (§8.1, §12.2-11)
+    lan_enabled: bool = True  # lier aussi les IPv4 privées détectées (sinon loopback seul)
+    allow_public_clients: bool = False  # refuser les clients hors réseaux privés
+    network_poll_seconds: float = Field(default=5.0, ge=0)  # 0 = surveillance désactivée
+    excluded_interface_patterns: tuple[str, ...] | None = None  # None = liste par défaut
+
+    # Sessions et appairage (§8.2, §12.2)
+    session_ttl_hours: float = Field(default=12, gt=0)
+    pairing_secret_ttl_seconds: int = Field(default=300, ge=30)
+    join_max_attempts: int = Field(default=10, ge=1)
+    join_window_seconds: int = Field(default=60, ge=1)
+
     # Journalisation
     log_level: LogLevel = "INFO"
     log_max_bytes: int = Field(default=5 * MIB, ge=64 * 1024)
@@ -49,3 +61,11 @@ class Settings(BaseSettings):
     @property
     def database_dir(self) -> Path:
         return self.data_dir / "database"
+
+    @property
+    def state_dir(self) -> Path:
+        return self.data_dir / "state"
+
+    @property
+    def admin_token_file(self) -> Path:
+        return self.state_dir / "admin.token"

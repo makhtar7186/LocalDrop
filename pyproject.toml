@@ -50,8 +50,8 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 # Tests : assert autorisé ; IDs d'exigence en majuscules dans les noms (test_FR_026_...).
-"**/tests/**" = ["S101", "N802"]
-"tests/**" = ["S101", "N802"]
+"**/tests/**" = ["S101", "S105", "S106", "N802"]
+"tests/**" = ["S101", "S105", "S106", "N802"]
 
 # --------------------------------------------------------------------------- mypy
 [tool.mypy]

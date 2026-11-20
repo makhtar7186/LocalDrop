@@ -8,15 +8,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 et 1 terminées.** Le socle, l'outillage et les ADR-001 à 007 sont dans [docs/decisions/](docs/decisions/). Côté serveur : `create_app`, `Settings`, logs avec masquage des secrets, `/api/v1/health`, format d'erreur unique, en-têtes de sécurité et UI statique. Prochaine étape : phase 2 (réseau, QR Code, sessions, appairage). Les commandes marquées *(phase N)* n'existent pas encore.
+**Avancement : phases 0, 1 et 2 terminées.**
+- Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
+- Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
+
+Prochaine étape : phase 3 (envoi simple téléphone → PC), qui conclut le premier jalon. Les décisions de la phase 2 sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Points d'ancrage du backend :
-- [main.py](backend/src/localdrop/main.py) : fabrique et montage de l'UI. `_WebUIMount` ignore `/api` et `/ws` pour ne pas masquer les 404/405 JSON.
-- [core/config.py](backend/src/localdrop/core/config.py) : tous les paramètres, surchargeables par `LOCALDROP_*`.
-- [core/paths.py](backend/src/localdrop/core/paths.py) : seul endroit qui calcule des chemins.
-- [api/errors.py](backend/src/localdrop/api/errors.py) : mapping des erreurs. Lever des sous-classes de `LocalDropError` ([core/errors.py](backend/src/localdrop/core/errors.py)), jamais `HTTPException` dans les services.
-- Fixtures de test partagées : [tests/conftest.py](tests/conftest.py) (`settings`, `app`, `client`).
+- [main.py](backend/src/localdrop/main.py) : fabrique `create_app(settings, services)`, cycle de vie (surveillance réseau), middlewares. `_WebUIMount` ignore `/api` et `/ws` pour ne pas masquer les 404/405 JSON.
+- [services/container.py](backend/src/localdrop/services/container.py) : `build_services()` assemble `AppServices` (bus d'événements, `PairingService`, `NetworkMonitor`, jeton admin). Il est partagé par l'API (`app.state.services`) et par le futur desktop.
+- [api/deps.py](backend/src/localdrop/api/deps.py) :
+  - `DeviceDep` : appareil **approuvé**, à utiliser sur toutes les routes de transfert ;
+  - `AdminDep` : loopback + en-tête `X-LocalDrop-Admin`.
+- [api/middleware.py](backend/src/localdrop/api/middleware.py) : `PrivateNetworkOnlyMiddleware` refuse les clients hors réseau privé.
+- [core/config.py](backend/src/localdrop/core/config.py) : tous les paramètres, surchargeables par `LOCALDROP_*`. [core/paths.py](backend/src/localdrop/core/paths.py) est le seul endroit qui calcule des chemins.
+- [api/errors.py](backend/src/localdrop/api/errors.py) : mapping des erreurs. Lever des sous-classes de `LocalDropError` ([core/errors.py](backend/src/localdrop/core/errors.py)) avec un `code` explicite, jamais `HTTPException` dans les services.
+- Sessions et appareils : dépôt **en mémoire** derrière le port `SessionRepository`. SQLite le remplacera en phase 6/7.
+
+Tests :
+- Fixtures partagées dans [tests/conftest.py](tests/conftest.py) :
+  - `client` = téléphone en `192.168.1.50` ;
+  - `admin` = loopback + jeton ;
+  - `make_client(ip, headers)` ;
+  - adresse réseau simulée `192.168.1.14`.
+- Le client par défaut de `TestClient` (`testclient`) est **refusé** par le middleware : toujours passer `client=(ip, port)`.
 - [test_architecture.py](backend/tests/unit/test_architecture.py) échoue si `domain/` importe un framework ou l'infrastructure.
+
+Web : `main.tsx` consomme le fragment `#/join?s=&k=` **avant** le rendu React, ce qui efface le secret de l'URL. `usePairing` garantit un seul `join`, même sous StrictMode, puisque le secret est à usage unique.
 
 ## Skills du projet (`.claude/skills/`)
 
@@ -49,7 +67,9 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/pytest -m unit                                 # marqueurs : unit, integration, e2e (--strict-markers)
 .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check .
 .venv/Scripts/mypy                                           # strict, paquets configurés dans pyproject.toml
-.venv/Scripts/python -m localdrop                            # serveur seul (logs dans %LOCALAPPDATA%\LocalDrop\logs)
+.venv/Scripts/python -m localdrop                            # serveur : lie 127.0.0.1 + IP privées, affiche le QR Code
+.venv/Scripts/python -m localdrop.devtools qr|devices|approve <id>|reject <id>|revoke [<id>]   # admin en dev
+# LOCALDROP_LAN_ENABLED=false : loopback seul (évite la boîte de dialogue du pare-feu lors des tests locaux)
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)
 .venv/Scripts/python -m localdrop_desktop                    # (phase 8)

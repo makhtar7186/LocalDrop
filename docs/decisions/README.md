@@ -12,9 +12,16 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 | [ADR-006](ADR-006-http-local-mvp.md) | HTTP local pour le MVP et stratégie de sécurisation | Accepté |
 | [ADR-007](ADR-007-pyside6-desktop.md) | PySide6 pour le desktop | Accepté |
 
+## Décisions prises en phase 2 (à formaliser si elles évoluent)
+
+- **Bind** : sockets explicites sur `127.0.0.1` et sur chaque IPv4 privée détectée (`SO_EXCLUSIVEADDRUSE`), jamais `0.0.0.0`. Un middleware refuse en plus tout client hors réseau privé ou loopback. Une nouvelle IP apparue après le démarrage exige un redémarrage du serveur (`server.network_changed`, `restart_required`), que le desktop pilotera.
+- **Administration HTTP** : client loopback **et** en-tête `X-LocalDrop-Admin` (jeton aléatoire par démarrage, écrit dans `%LOCALAPPDATA%\LocalDrop\state\admin.token`). Le desktop appellera les services en processus.
+- **Appairage** : un jeton d'appareil est émis dès `join` (statut `pending`). Il n'ouvre les routes de transfert qu'après approbation. Le secret du QR Code tourne après chaque `join` réussi.
+- **Sessions en mémoire** : dépôt `InMemorySessionRepository` derrière le port `SessionRepository`. Il sera remplacé par SQLite (phase 6/7) sans changer les services.
+
 ## Décisions ouvertes
 
 - Accusé de réception fiable des téléchargements sortants (§6.3).
 - Authentification des téléchargements par lien (ticket court à usage unique ou cookie).
-- Bind multi-interfaces (sockets multiples) ou une seule interface choisie.
+- Persistance des appareils approuvés après redémarrage du PC (ou nouvel appairage obligatoire).
 - Politique de conservation de l'historique.

@@ -12,6 +12,8 @@ from localdrop.main import create_app
 
 pytestmark = pytest.mark.integration
 
+LAN = ("192.168.1.50", 50000)
+
 
 def test_FR_006_health_reports_ok_and_version(client: TestClient) -> None:
     response = client.get("/api/v1/health")
@@ -68,7 +70,7 @@ def _app_with_test_routes(settings: Settings) -> FastAPI:
 
 
 def test_domain_error_is_mapped(settings: Settings) -> None:
-    with TestClient(_app_with_test_routes(settings)) as client:
+    with TestClient(_app_with_test_routes(settings), client=LAN) as client:
         response = client.get("/api/v1/_test/conflict")
     assert response.status_code == 409
     assert response.json() == {
@@ -81,7 +83,7 @@ def test_domain_error_is_mapped(settings: Settings) -> None:
 
 
 def test_validation_error_never_echoes_input(settings: Settings) -> None:
-    with TestClient(_app_with_test_routes(settings)) as client:
+    with TestClient(_app_with_test_routes(settings), client=LAN) as client:
         response = client.post(
             "/api/v1/_test/validate", json={"secret": "ne-pas-renvoyer", "size": "abc"}
         )
@@ -93,7 +95,9 @@ def test_validation_error_never_echoes_input(settings: Settings) -> None:
 
 
 def test_unexpected_error_hides_internals(settings: Settings) -> None:
-    with TestClient(_app_with_test_routes(settings), raise_server_exceptions=False) as client:
+    with TestClient(
+        _app_with_test_routes(settings), client=LAN, raise_server_exceptions=False
+    ) as client:
         response = client.get("/api/v1/_test/boom")
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
@@ -106,7 +110,7 @@ def test_web_ui_is_served_when_built(settings: Settings, tmp_path: Path) -> None
     (dist / "index.html").write_text("<!doctype html><title>LocalDrop</title>", encoding="utf-8")
     app = create_app(settings.model_copy(update={"web_dist_dir": dist}))
 
-    with TestClient(app) as client:
+    with TestClient(app, client=LAN) as client:
         page = client.get("/")
         api_miss = client.get("/api/v1/inexistant")
         wrong_method = client.post("/api/v1/health")

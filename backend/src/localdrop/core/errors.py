@@ -36,3 +36,18 @@ class NotFoundError(LocalDropError):
 class ConflictError(LocalDropError):
     code = "CONFLICT"
     status_code = 409
+
+
+class UnauthorizedError(LocalDropError):
+    code = "UNAUTHORIZED"
+    status_code = 401
+
+
+class ForbiddenError(LocalDropError):
+    code = "FORBIDDEN"
+    status_code = 403
+
+
+class TooManyRequestsError(LocalDropError):
+    code = "TOO_MANY_REQUESTS"
+    status_code = 429
