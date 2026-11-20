@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)", "Bash(python -m pytest:*)", "Bash(ruff check:*)", "Bash(ruff format:*)",
+      "Bash(mypy:*)", "Bash(alembic upgrade:*)", "Bash(alembic revision:*)", "Bash(alembic current:*)",
+      "Bash(npm --prefix apps/web run:*)", "Bash(npm test:*)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)"
+    ],
+    "deny": ["Read(./.env)", "Read(./.env.*)"]
+  }
+}

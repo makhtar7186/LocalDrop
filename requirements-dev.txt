@@ -1,0 +1,3 @@
+# Environnement de développement complet (backend + desktop + outils qualité).
+# Installation : pip install -r requirements-dev.txt
+-e .[dev,desktop]

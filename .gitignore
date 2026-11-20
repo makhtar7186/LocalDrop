@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Packaging
+build/
+dist/
+*.spec.bak
+
+# Web
+node_modules/
+apps/web/dist/
+apps/web/coverage/
+
+# Données d'exécution (ne jamais versionner)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.part
+logs/
+.localdrop-tmp/
+
+# Secrets / local
+.env
+.env.*
+.claude/settings.local.json
+
+# OS / IDE
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
