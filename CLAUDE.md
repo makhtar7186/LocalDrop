@@ -8,7 +8,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phase 0 terminée** (socle du dépôt, outillage, ADR-001 à 007 dans [docs/decisions/](docs/decisions/)). Prochaine étape : phase 1 (`create_app`, `Settings`, logs, `/health`). Les commandes marquées *(phase N)* n'existent pas encore.
+**Avancement : phases 0 et 1 terminées.** Le socle, l'outillage et les ADR-001 à 007 sont dans [docs/decisions/](docs/decisions/). Côté serveur : `create_app`, `Settings`, logs avec masquage des secrets, `/api/v1/health`, format d'erreur unique, en-têtes de sécurité et UI statique. Prochaine étape : phase 2 (réseau, QR Code, sessions, appairage). Les commandes marquées *(phase N)* n'existent pas encore.
+
+Points d'ancrage du backend :
+- [main.py](backend/src/localdrop/main.py) : fabrique et montage de l'UI. `_WebUIMount` ignore `/api` et `/ws` pour ne pas masquer les 404/405 JSON.
+- [core/config.py](backend/src/localdrop/core/config.py) : tous les paramètres, surchargeables par `LOCALDROP_*`.
+- [core/paths.py](backend/src/localdrop/core/paths.py) : seul endroit qui calcule des chemins.
+- [api/errors.py](backend/src/localdrop/api/errors.py) : mapping des erreurs. Lever des sous-classes de `LocalDropError` ([core/errors.py](backend/src/localdrop/core/errors.py)), jamais `HTTPException` dans les services.
+- Fixtures de test partagées : [tests/conftest.py](tests/conftest.py) (`settings`, `app`, `client`).
+- [test_architecture.py](backend/tests/unit/test_architecture.py) échoue si `domain/` importe un framework ou l'infrastructure.
 
 ## Skills du projet (`.claude/skills/`)
 
@@ -41,7 +49,9 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/pytest -m unit                                 # marqueurs : unit, integration, e2e (--strict-markers)
 .venv/Scripts/ruff check . && .venv/Scripts/ruff format --check .
 .venv/Scripts/mypy                                           # strict, paquets configurés dans pyproject.toml
-.venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # (phase 1)
+.venv/Scripts/python -m localdrop                            # serveur seul (logs dans %LOCALAPPDATA%\LocalDrop\logs)
+.venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
+# Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)
 .venv/Scripts/python -m localdrop_desktop                    # (phase 8)
 .venv/Scripts/alembic revision --autogenerate -m "..."       # (phase 6/7)
 
