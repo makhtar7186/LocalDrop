@@ -1,0 +1,9 @@
+# Dépendances et environnements
+node_modules/
+.tts-venv/
+
+# Rendus (vidéo, images de contrôle) : régénérables par `npm run render`
+out/
+
+# Musique : régénérée hors ligne par scripts/timeline.py (5,6 Mo)
+public/music.wav
