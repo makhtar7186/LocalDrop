@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 7 terminées.** Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
+**Avancement : phases 0 à 8 terminées.** L'application Windows (PySide6) est disponible. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -30,7 +30,12 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - historique `GET /history` et `/admin/history` (FR-034), ainsi que l'écran Historique mobile ;
   - [server.py](backend/src/localdrop/server.py) : `LocalServer` lie les sockets, **redémarre tout seul** quand une adresse apparaît et affiche l'aide de connexion. Le desktop doit le réutiliser (`run()` bloquant dans un thread, `stop()`, `started`).
 
-Prochaine étape : phase 8 (application Windows PySide6, qui embarque `LocalServer` et `AppServices`). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 8 : [apps/desktop/](apps/desktop/src/localdrop_desktop/).
+  - `AppController` est la façade en processus. `ServerWorker` fait tourner `LocalServer` dans un thread. `EventBridge` transforme le bus en signaux Qt. `TaskRunner` gère les accès base hors du thread GUI.
+  - Ne jamais toucher un widget depuis un autre thread : passer par un signal.
+  - Les paramètres utilisateur sont persistés par `load_settings()`/`save_user_settings()` ([core/config.py](backend/src/localdrop/core/config.py)).
+
+Prochaine étape : phase 9 (interface React complète). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -105,7 +110,8 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 # LOCALDROP_LAN_ENABLED=false : loopback seul (évite la boîte de dialogue du pare-feu lors des tests locaux)
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)
-.venv/Scripts/python -m localdrop_desktop                    # (phase 8)
+.venv/Scripts/python -m localdrop_desktop                    # application Windows (QR Code, approbations, glisser-déposer)
+.venv/Scripts/pytest apps/desktop/tests --tb=native           # tests Qt hors écran (QT_QPA_PLATFORM=offscreen via conftest)
 .venv/Scripts/alembic revision --autogenerate -m "..."       # base : LOCALDROP_DATA_DIR ; relire le script (CHECK, index)
 .venv/Scripts/alembic upgrade head && .venv/Scripts/alembic check   # « No new upgrade operations » attendu
 
@@ -116,7 +122,8 @@ npm --prefix apps/web test                                   # un fichier : npm 
 # Packaging (phase 11)
 pyinstaller localdrop.spec --noconfirm --clean
 ```
-Les tests Python sont en `--import-mode=importlib` : **pas de `__init__.py`** dans les dossiers de tests. Le proxy Vite redirige `/api` et `/ws` vers `127.0.0.1:8765`. Ruff ignore `.claude/` et `docs/`.
+Les tests Python sont en `--import-mode=importlib` : **pas de `__init__.py`** dans les dossiers de tests.
+Avec PySide6 chargé, pytest peut mettre plus de 30 s à **formater** un échec (`inspect.getmodule` parcourt tous les modules), ce qui ressemble à un blocage. Utiliser `--tb=native`. Dans les tests desktop, préférer `urllib` à `httpx` : sa première initialisation (TLS) est très lente sur cette machine. Le proxy Vite redirige `/api` et `/ws` vers `127.0.0.1:8765`. Ruff ignore `.claude/` et `docs/`.
 Pour tester avec un vrai téléphone, servir le build web depuis FastAPI lié à l'IP privée du PC (pas `127.0.0.1`).
 
 ## Architecture

@@ -10,7 +10,7 @@ from __future__ import annotations
 import contextlib
 import sys
 
-from localdrop.core.config import Settings
+from localdrop.core.config import load_settings
 from localdrop.core.logging import setup_logging
 from localdrop.server import LocalServer, PortUnavailableError
 from localdrop.services.container import build_services
@@ -23,7 +23,7 @@ def _print(text: str) -> None:
 def main() -> None:
     with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
-    settings = Settings()
+    settings = load_settings()
     setup_logging(settings)
     services = build_services(settings)
     settings.state_dir.mkdir(parents=True, exist_ok=True)

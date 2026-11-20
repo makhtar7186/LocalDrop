@@ -124,8 +124,15 @@ class TransferService:
             raise NotFoundError("Transfert introuvable", code="TRANSFER_NOT_FOUND")
         return transfer
 
-    def _own_upload(self, device: Device, transfer_id: str) -> Transfer:
-        transfer = self.get(device, transfer_id)
+    def _own_upload(self, device: Device | None, transfer_id: str) -> Transfer:
+        """Upload de l'appareil, ou n'importe quel upload si device=None (PC)."""
+        if device is None:
+            found = self._repo.get(transfer_id)
+            if found is None:
+                raise NotFoundError("Transfert introuvable", code="TRANSFER_NOT_FOUND")
+            transfer = found
+        else:
+            transfer = self.get(device, transfer_id)
         if transfer.direction is not Direction.UPLOAD:
             raise NotFoundError("Transfert entrant introuvable", code="TRANSFER_NOT_FOUND")
         return transfer
@@ -135,6 +142,10 @@ class TransferService:
 
     def list_all(self) -> list[Transfer]:
         return self._repo.list_all()
+
+    def find(self, transfer_id: str) -> Transfer | None:
+        """Lecture sans contrôle d'appartenance : réservé au PC (administration)."""
+        return self._repo.get(transfer_id)
 
     def history(self, query: TransferQuery) -> TransferPage:
         """Historique filtré (FR-034). L'appelant fixe ``device_id`` pour un téléphone."""
@@ -282,7 +293,8 @@ class TransferService:
         return transfer
 
     # ------------------------------------------------------------------ annulation
-    def cancel(self, device: Device, transfer_id: str) -> Transfer:
+    def cancel(self, device: Device | None, transfer_id: str) -> Transfer:
+        """Annulation par le téléphone propriétaire, ou par le PC (device=None)."""
         with self._lock_for(transfer_id):
             transfer = self._own_upload(device, transfer_id)
             previous = transfer.status

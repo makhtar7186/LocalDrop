@@ -71,7 +71,8 @@ ignore_missing_imports = true
 minversion = "8.0"
 testpaths = ["backend/tests", "apps/desktop/tests", "tests"]
 addopts = ["--import-mode=importlib", "--strict-markers", "-ra"]
-timeout = 30  # filet de sécurité : un WebSocket qui n'arrive jamais ne bloque pas la suite
+timeout = 30
+qt_api = "pyside6"  # filet de sécurité : un WebSocket qui n'arrive jamais ne bloque pas la suite
 markers = [
     "unit: tests rapides sans I/O",
     "integration: tests avec l'application, la base et le disque",

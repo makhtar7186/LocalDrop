@@ -6,8 +6,11 @@ Toutes les valeurs sont surchargeables par variables d'environnement préfixées
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +18,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from localdrop.core.paths import default_data_dir, default_receive_dir, default_web_dist_dir
 
 MIB = 1024 * 1024
+
+logger = logging.getLogger(__name__)
+
+SETTINGS_FILENAME = "settings.json"
+ENV_PREFIX = "LOCALDROP_"
+
+# Paramètres modifiables depuis l'écran Paramètres (§14.2) et persistés.
+USER_EDITABLE: tuple[str, ...] = (
+    "receive_dir",
+    "port",
+    "chunk_size",
+    "max_concurrent_transfers",
+    "temp_retention_hours",
+    "session_ttl_hours",
+    "history_retention_days",
+    "lan_enabled",
+)
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
@@ -68,6 +88,10 @@ class Settings(BaseSettings):
     log_backup_count: int = Field(default=5, ge=1)
 
     @property
+    def settings_file(self) -> Path:
+        return self.data_dir / SETTINGS_FILENAME
+
+    @property
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
 
@@ -82,3 +106,56 @@ class Settings(BaseSettings):
     @property
     def admin_token_file(self) -> Path:
         return self.state_dir / "admin.token"
+
+
+def load_settings(**overrides: Any) -> Settings:
+    """Paramètres effectifs : variables d'environnement > settings.json > défauts.
+
+    Un fichier illisible ou une valeur invalide est ignoré (journalisé) : l'application
+    doit toujours pouvoir démarrer.
+    """
+    base = Settings(**overrides)
+    try:
+        stored = json.loads(base.settings_file.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return base
+    except (OSError, ValueError):
+        logger.warning("Paramètres illisibles (%s) : valeurs par défaut", base.settings_file)
+        return base
+    if not isinstance(stored, dict):
+        return base
+    from_file = {
+        key: value
+        for key, value in stored.items()
+        if key in USER_EDITABLE
+        and key not in overrides
+        and f"{ENV_PREFIX}{key.upper()}" not in os.environ
+    }
+    try:
+        return Settings(**{**from_file, **overrides})
+    except ValueError:
+        logger.warning("Paramètres invalides dans %s : valeurs par défaut", base.settings_file)
+        return base
+
+
+def save_user_settings(settings: Settings, values: dict[str, Any]) -> Settings:
+    """Valide puis enregistre les paramètres modifiables. Appliqués au prochain démarrage."""
+    unknown = set(values) - set(USER_EDITABLE)
+    if unknown:
+        raise ValueError(f"Paramètres non modifiables : {sorted(unknown)}")
+    validated = Settings(**{**settings.model_dump(), **values})  # lève si invalide
+    stored: dict[str, Any] = {}
+    if settings.settings_file.exists():
+        try:
+            loaded = json.loads(settings.settings_file.read_text(encoding="utf-8"))
+            stored = loaded if isinstance(loaded, dict) else {}
+        except (OSError, ValueError):
+            stored = {}
+    for key in values:
+        value = getattr(validated, key)
+        stored[key] = str(value) if isinstance(value, Path) else value
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    temporary = settings.settings_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps(stored, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(settings.settings_file)  # écriture atomique (fichier de config, pas un reçu)
+    return validated

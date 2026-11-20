@@ -245,4 +245,8 @@ async def admin_offer(
 
 @router.post("/admin/transfers/{transfer_id}/cancel", response_model=AdminTransferOut)
 def admin_cancel(transfer_id: TransferId, _: AdminDep, services: ServicesDep) -> AdminTransferOut:
+    """Annulation par le PC, dans les deux sens."""
+    existing = services.transfers.find(transfer_id)
+    if existing is not None and existing.direction is Direction.UPLOAD:
+        return AdminTransferOut.from_domain(services.transfers.cancel(None, transfer_id))
     return AdminTransferOut.from_domain(services.downloads.cancel(transfer_id))

@@ -88,8 +88,28 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
   - L'arrêt gracieux est limité à 3 s.
 - **Aide à la connexion (§3.3)** : sans aucun `join` `join_help_delay_seconds` (60) après le QR Code, le terminal affiche une URL de test `/api/v1/health` pour le téléphone, l'explication de l'isolation des clients, la procédure du point d'accès mobile, et l'avertissement sur un profil Windows « Public » (lu avec `Get-NetConnectionProfile`, au mieux).
 
+## Décisions prises en phase 8 (application Windows)
+
+- **Architecture** : [apps/desktop/](../../apps/desktop/src/localdrop_desktop/).
+  - `ServerWorker` fait tourner `LocalServer` dans un thread non démon. L'arrêt passe par `stop()` puis `join` (10 s).
+  - `EventBridge` relaie le bus vers des signaux Qt en file.
+  - `TaskRunner` exécute tout appel touchant la base ou le disque hors du thread GUI, avec un retour par signal.
+  - `AppController` est la façade **en processus** : jamais d'appel HTTP pour l'administration.
+- **Écrans (§14.2)** :
+  - Tableau de bord : état et démarrage/arrêt (FR-001), QR Code dessiné en `QPainter`, adresses (la copie ne contient **jamais** le secret), appareils (autoriser, refuser, déconnecter, fermer la session), dépôt de fichiers.
+  - Transferts (annulation).
+  - Historique (recherche, sens, « Ouvrir le dossier » par `explorer /select,`, jamais le fichier lui-même).
+  - Paramètres.
+- **Approbation (FR-011)** : dialogue non bloquant par appareil, fermé automatiquement si la décision est prise ailleurs. « Refuser » est le bouton par défaut, et « Autoriser » ne peut **jamais** le devenir : Entrée refuse, ce qui est testé au clavier.
+- **Paramètres persistés** dans `%LOCALAPPDATA%\LocalDrop\settings.json`, uniquement pour les clés de `USER_EDITABLE`. Priorité : environnement > fichier > défauts. Un fichier invalide n'empêche jamais le démarrage. Les modifications s'appliquent au **prochain démarrage**.
+- **Pause/reprise depuis le PC : non proposées.** Le téléphone reprend automatiquement un transfert « en pause » (mécanisme de reprise après redémarrage) : une pause décidée sur le PC serait aussitôt annulée. Il faudrait distinguer la cause de la pause (à étudier). Le PC peut **annuler** dans les deux sens.
+- **Instance unique** : `QLockFile` (`staleLockTime=0`, verrou de longue durée) et `QLocalServer`. Une seconde instance réactive la fenêtre puis se ferme.
+- **Arrêt propre** : confirmation si des transferts sont actifs, puis fermeture des dialogues, arrêt du serveur (WebSocket fermés), des tâches et de la base, et suppression du jeton admin. Les transferts interrompus sont repris au démarrage suivant (réconciliation de la phase 6).
+- **Non fait** (optionnel au cahier) : icône de zone de notification et démarrage automatique avec Windows.
+
 ## Décisions ouvertes
 
+- Pause et reprise d'un upload décidées sur le PC (distinguer la cause de la pause).
 - Progression octet par octet des téléchargements sortants (actuellement : démarré, puis servi en entier).
 - Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement) : à évaluer en phase 9.
 - Persistance des appareils approuvés après redémarrage du PC (ou nouvel appairage obligatoire).
