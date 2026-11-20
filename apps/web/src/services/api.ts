@@ -4,6 +4,8 @@ import {
   type ChunkAck,
   chunkAckSchema,
   chunkListSchema,
+  type DownloadTicket,
+  downloadTicketSchema,
   errorBodySchema,
   joinResponseSchema,
   type JoinResponse,
@@ -136,6 +138,26 @@ export const transferApi: TransferApi = {
       token,
       body: JSON.stringify({ sha256 }),
     }),
+  cancel: (token, transferId) =>
+    request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
+};
+
+export interface ReceiveApi {
+  list(token: string): Promise<Transfer[]>;
+  ticket(token: string, transferId: string): Promise<DownloadTicket>;
+  confirm(token: string, transferId: string): Promise<Transfer>;
+  cancel(token: string, transferId: string): Promise<Transfer>;
+}
+
+export const receiveApi: ReceiveApi = {
+  list: (token) => request(transferSchema.array(), "/transfers", { token }),
+  ticket: (token, transferId) =>
+    request(downloadTicketSchema, `/transfers/${enc(transferId)}/download-ticket`, {
+      method: "POST",
+      token,
+    }),
+  confirm: (token, transferId) =>
+    request(transferSchema, `/transfers/${enc(transferId)}/confirm`, { method: "POST", token }),
   cancel: (token, transferId) =>
     request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
 };

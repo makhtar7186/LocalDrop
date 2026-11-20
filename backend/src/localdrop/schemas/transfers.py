@@ -34,6 +34,7 @@ class TransferOut(BaseModel):
     received_bytes: int
     sha256: str | None
     error_code: str | None
+    fully_served: bool
     created_at: datetime
     updated_at: datetime
     expires_at: datetime
@@ -52,6 +53,7 @@ class TransferOut(BaseModel):
             received_bytes=transfer.received_bytes,
             sha256=transfer.sha256,
             error_code=transfer.error_code,
+            fully_served=transfer.fully_served,
             created_at=transfer.created_at,
             updated_at=transfer.updated_at,
             expires_at=transfer.expires_at,
@@ -79,3 +81,15 @@ class ChunkAck(BaseModel):
     already_received: bool
     received_bytes: int
     status: TransferStatus
+
+
+class DownloadTicketResponse(BaseModel):
+    url: str  # chemin relatif à l'origine, ticket inclus
+    expires_at: datetime
+
+
+class OfferRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=4096)
+    device_id: str = Field(min_length=1, max_length=64)

@@ -16,6 +16,7 @@ from localdrop.infrastructure.network.interfaces import (
     detect_candidates,
 )
 from localdrop.infrastructure.storage.files import FileStorage
+from localdrop.services.downloads import DownloadService
 from localdrop.services.events import EventBus
 from localdrop.services.network_monitor import AddressProvider, NetworkMonitor
 from localdrop.services.pairing import PairingService
@@ -30,6 +31,7 @@ class AppServices:
     network: NetworkMonitor
     storage: FileStorage
     transfers: TransferService
+    downloads: DownloadService
     # Jeton des routes d'administration HTTP (outil dev / desktop hors processus).
     admin_token: str
     server_name: str
@@ -60,13 +62,22 @@ def build_services(
     network.refresh()
 
     storage = FileStorage(settings.receive_dir, free_space_margin=settings.free_space_margin)
+    transfer_repository = InMemoryTransferRepository()
     transfers = TransferService(
-        InMemoryTransferRepository(),
+        transfer_repository,
         storage,
         events,
         chunk_size=settings.chunk_size,
         retention=timedelta(hours=settings.temp_retention_hours),
         max_file_size=settings.max_file_size,
+    )
+    downloads = DownloadService(
+        transfer_repository,
+        pairing,
+        events,
+        chunk_size=settings.chunk_size,
+        retention=timedelta(hours=settings.temp_retention_hours),
+        ticket_ttl=timedelta(seconds=settings.download_ticket_ttl_seconds),
     )
 
     return AppServices(
@@ -76,6 +87,7 @@ def build_services(
         network=network,
         storage=storage,
         transfers=transfers,
+        downloads=downloads,
         admin_token=generate_secret(),
         server_name=socket.gethostname(),
     )

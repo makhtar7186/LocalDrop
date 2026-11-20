@@ -27,6 +27,7 @@ class FakeServer implements TransferApi {
       received_bytes: [...this.chunks.values()].reduce((n, c) => n + c.length, 0),
       sha256: null,
       error_code: null,
+      fully_served: false,
     };
   }
 

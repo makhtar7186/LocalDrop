@@ -184,6 +184,19 @@ class PairingService:
             self._repo.save_device(device)
             return device
 
+    def active_device(self, device_id: str) -> Device:
+        """Appareil approuvé et toujours autorisé (ticket de téléchargement, envoi PC)."""
+        device = self._repo.get_device(device_id)
+        if device is None or device.status not in (
+            DeviceStatus.CONNECTED,
+            DeviceStatus.DISCONNECTED,
+        ):
+            raise UnauthorizedError("Appareil non autorisé", code="DEVICE_UNAUTHORIZED")
+        session = self._repo.get_session(device.session_id)
+        if session is None or not session.is_active(self._clock()):
+            raise UnauthorizedError("Session expirée", code="SESSION_EXPIRED")
+        return device
+
     # ------------------------------------------------------------------ administration
     def approve(self, device_id: str) -> Device:
         device = self._change_status(device_id, DeviceStatus.CONNECTED)

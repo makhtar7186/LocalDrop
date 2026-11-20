@@ -61,6 +61,7 @@ export const transferSchema = z.object({
   received_bytes: z.number().int().nonnegative(),
   sha256: z.string().nullable(),
   error_code: z.string().nullable(),
+  fully_served: z.boolean(),
 });
 export type Transfer = z.infer<typeof transferSchema>;
 
@@ -77,3 +78,9 @@ export const chunkListSchema = z.object({
   total_chunks: z.number().int().nonnegative(),
   received: z.array(z.number().int().nonnegative()),
 });
+
+export const downloadTicketSchema = z.object({
+  url: z.string().startsWith("/api/v1/transfers/"),
+  expires_at: z.string(),
+});
+export type DownloadTicket = z.infer<typeof downloadTicketSchema>;

@@ -3,6 +3,8 @@
     python -m localdrop.devtools qr            # QR Code courant (à usage unique)
     python -m localdrop.devtools devices       # appareils de la session
     python -m localdrop.devtools transfers     # transferts (état, progression, chemin final)
+    python -m localdrop.devtools send <fichier> [--device <id>]   # PC -> téléphone
+    python -m localdrop.devtools cancel <transfer_id>              # annule un envoi du PC
     python -m localdrop.devtools approve <id>
     python -m localdrop.devtools reject <id>
     python -m localdrop.devtools revoke <id>   # sans id : ferme toute la session
@@ -19,6 +21,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from localdrop.api.deps import ADMIN_HEADER
@@ -62,12 +65,25 @@ def _print_qr(settings: Settings) -> None:
     qr.print_ascii(out=sys.stdout, invert=True)
 
 
+def _pick_device(settings: Settings, args: argparse.Namespace) -> str:
+    if args.device_id:
+        return str(args.device_id)
+    connected = [d for d in _call(settings, "GET", "/devices") if d["status"] == "connected"]
+    if len(connected) != 1:
+        sys.exit(f"{len(connected)} appareil(s) connecté(s) : précisez --device <id>.")
+    return str(connected[0]["id"])
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m localdrop.devtools")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("qr")
     sub.add_parser("devices")
     sub.add_parser("transfers")
+    send = sub.add_parser("send")
+    send.add_argument("path")
+    send.add_argument("--device", dest="device_id")
+    sub.add_parser("cancel").add_argument("transfer_id")
     for name in ("approve", "reject"):
         sub.add_parser(name).add_argument("device_id")
     sub.add_parser("revoke").add_argument("device_id", nargs="?")
@@ -81,6 +97,11 @@ def main(argv: list[str] | None = None) -> None:
         result = _call(settings, "GET", "/devices")
     elif args.command == "transfers":
         result = _call(settings, "GET", "/admin/transfers")
+    elif args.command == "send":
+        body = {"path": str(Path(args.path).resolve()), "device_id": _pick_device(settings, args)}
+        result = _call(settings, "POST", "/admin/transfers/outgoing", body)
+    elif args.command == "cancel":
+        result = _call(settings, "POST", f"/admin/transfers/{args.transfer_id}/cancel")
     elif args.command in ("approve", "reject"):
         body = {"device_id": args.device_id, "approve": args.command == "approve"}
         result = _call(settings, "POST", "/sessions/approve", body)

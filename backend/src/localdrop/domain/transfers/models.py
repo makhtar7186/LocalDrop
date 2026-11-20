@@ -85,6 +85,10 @@ class Transfer:
     sha256: str | None = None  # hash global vérifié
     final_path: str | None = None
     error_code: str | None = None
+    # Sortants (PC -> téléphone) : fichier source non copié, contrôlé à chaque service.
+    source_path: str | None = None
+    source_mtime_ns: int | None = None
+    fully_served: bool = False  # servi en entier au moins une fois (≠ reçu : §6.3)
 
     @property
     def is_terminal(self) -> bool:

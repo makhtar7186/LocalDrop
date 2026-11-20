@@ -18,6 +18,11 @@ export default tseslint.config(
     },
     rules: {
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      // Préfixe « _ » = paramètre volontairement inutilisé.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
   reactHooks.configs.flat.recommended,

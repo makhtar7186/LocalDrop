@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { App } from "../src/app/App";
-import type { PairingApi, TransferApi } from "../src/services/api";
+import type { PairingApi, ReceiveApi, TransferApi } from "../src/services/api";
 import { saveCredentials } from "../src/services/credentials";
 import type { Transfer } from "../src/services/schemas";
 
@@ -31,6 +31,7 @@ function transfer(id: string, size: number, status: Transfer["status"]): Transfe
     received_bytes: status === "completed" ? size : 0,
     sha256: null,
     error_code: null,
+    fully_served: false,
   };
 }
 
@@ -57,12 +58,25 @@ function fakeTransfers(): TransferApi {
   };
 }
 
+const noDownloads: ReceiveApi = {
+  list: () => Promise.resolve([]),
+  ticket: () => Promise.reject(new Error("non utilisé")),
+  confirm: () => Promise.reject(new Error("non utilisé")),
+  cancel: () => Promise.reject(new Error("non utilisé")),
+};
+
 beforeEach(() => window.localStorage.clear());
 
 it("FR-021/FR-022/FR-024 : envoie plusieurs fichiers avec progression", async () => {
   saveCredentials({ deviceId: "dev1", token: "tok" });
   const api = fakeTransfers();
-  render(<App pairing={{ api: connected, connectedPollMs: 60_000 }} transfers={api} />);
+  render(
+    <App
+      pairing={{ api: connected, connectedPollMs: 60_000 }}
+      transfers={api}
+      receive={noDownloads}
+    />,
+  );
 
   const input = await screen.findByLabelText("Choisir des fichiers");
   expect(screen.getByText("Aucun envoi pour le moment.")).toBeInTheDocument();

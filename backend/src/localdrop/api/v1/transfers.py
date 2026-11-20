@@ -1,22 +1,33 @@
-"""Routes de transfert (§10.2). Toutes exigent un appareil approuvé."""
+"""Routes de transfert (§10.2).
+
+Toutes exigent un appareil approuvé (Bearer), sauf ``/download`` qui exige un ticket
+court émis à cet appareil, et ``/admin/*`` réservées au PC.
+"""
 
 from __future__ import annotations
 
 import re
+from pathlib import Path as PathLib
 from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Header, Path, Request, status
+from fastapi import APIRouter, Header, Path, Query, Request, status
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from localdrop.api.deps import AdminDep, DeviceDep, ServicesDep
 from localdrop.core.errors import LocalDropError
+from localdrop.domain.transfers.models import Direction
 from localdrop.schemas.transfers import (
     AdminTransferOut,
     ChunkAck,
     ChunkListResponse,
     CompleteTransferRequest,
     CreateTransferRequest,
+    DownloadTicketResponse,
+    OfferRequest,
     TransferOut,
 )
 
@@ -130,10 +141,94 @@ async def complete_transfer(
 async def cancel_transfer(
     transfer_id: TransferId, device: DeviceDep, services: ServicesDep
 ) -> TransferOut:
-    transfer = await run_in_threadpool(services.transfers.cancel, device, transfer_id)
+    existing = services.transfers.get(device, transfer_id)
+    if existing.direction is Direction.DOWNLOAD:
+        transfer = services.downloads.cancel(transfer_id, device)
+    else:
+        transfer = await run_in_threadpool(services.transfers.cancel, device, transfer_id)
     return TransferOut.from_domain(transfer)
 
 
+# ----------------------------------------------------------------- PC -> téléphone
+@router.post("/transfers/{transfer_id}/download-ticket", response_model=DownloadTicketResponse)
+async def download_ticket(
+    transfer_id: TransferId, device: DeviceDep, services: ServicesDep
+) -> DownloadTicketResponse:
+    """Ticket court pour un lien <a> (qui ne peut pas porter d'en-tête Authorization)."""
+    ticket = services.downloads.issue_ticket(device, transfer_id)
+    return DownloadTicketResponse(
+        url=f"/api/v1/transfers/{quote(transfer_id)}/download?ticket={quote(ticket.token)}",
+        expires_at=ticket.expires_at,
+    )
+
+
+@router.get("/transfers/{transfer_id}/download", response_class=FileResponse)
+async def download(
+    transfer_id: TransferId,
+    request: Request,
+    services: ServicesDep,
+    ticket: Annotated[str, Query(min_length=1, max_length=128)],
+) -> FileResponse:
+    """Téléchargement streaming avec reprise (Range). Toujours en pièce jointe opaque :
+    un fichier HTML servi en ligne s'exécuterait dans l'origine LocalDrop."""
+    grant = await run_in_threadpool(services.downloads.open_download, transfer_id, ticket)
+    size = grant.transfer.total_size
+    background = (
+        BackgroundTask(services.downloads.mark_served, transfer_id)
+        if _reaches_end(request.headers.get("range"), size)
+        else None
+    )
+    return FileResponse(
+        grant.path,
+        filename=grant.transfer.safe_filename,
+        media_type="application/octet-stream",
+        content_disposition_type="attachment",
+        headers={"Content-Security-Policy": "sandbox", "X-Download-Options": "noopen"},
+        background=background,
+    )
+
+
+def _reaches_end(range_header: str | None, size: int) -> bool:
+    """Vrai si la réponse enverra le fichier jusqu'au dernier octet."""
+    if not range_header:
+        return True
+    match = re.fullmatch(r"\s*bytes=(\d*)-(\d*)\s*", range_header)
+    if not match:
+        return True  # en-tête non reconnu : Starlette servira le fichier entier
+    end = match.group(2)
+    return not end or int(end) >= size - 1
+
+
+@router.post("/transfers/{transfer_id}/confirm", response_model=TransferOut)
+async def confirm_download(
+    transfer_id: TransferId, device: DeviceDep, services: ServicesDep
+) -> TransferOut:
+    """Accusé de réception du téléphone : seul signal fiable de livraison (§6.3)."""
+    return TransferOut.from_domain(services.downloads.confirm(device, transfer_id))
+
+
+# ----------------------------------------------------------------- administration (PC)
 @router.get("/admin/transfers", response_model=list[AdminTransferOut])
 async def admin_list_transfers(_: AdminDep, services: ServicesDep) -> list[AdminTransferOut]:
     return [AdminTransferOut.from_domain(t) for t in services.transfers.list_all()]
+
+
+@router.post(
+    "/admin/transfers/outgoing",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AdminTransferOut,
+)
+async def admin_offer(
+    payload: OfferRequest, _: AdminDep, services: ServicesDep
+) -> AdminTransferOut:
+    transfer = await run_in_threadpool(
+        services.downloads.offer, PathLib(payload.path), payload.device_id
+    )
+    return AdminTransferOut.from_domain(transfer)
+
+
+@router.post("/admin/transfers/{transfer_id}/cancel", response_model=AdminTransferOut)
+async def admin_cancel(
+    transfer_id: TransferId, _: AdminDep, services: ServicesDep
+) -> AdminTransferOut:
+    return AdminTransferOut.from_domain(services.downloads.cancel(transfer_id))

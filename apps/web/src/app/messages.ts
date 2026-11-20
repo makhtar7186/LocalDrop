@@ -32,6 +32,20 @@ export const messages = {
   uploadCompleted: "Reçu sur le PC ✓",
   uploadCancelled: "Annulé",
   uploadFailed: (code: string) => uploadErrors[code] ?? `Échec (${code})`,
+
+  receiveTitle: "Recevoir du PC",
+  receiveLoading: "Recherche des fichiers proposés par le PC…",
+  receiveEmpty: "Aucun fichier proposé. Envoyez un fichier depuis le PC pour le voir ici.",
+  receiveOffline: "Impossible d'actualiser la liste : PC injoignable.",
+  receiveListLabel: "Fichiers proposés par le PC",
+  download: "Télécharger",
+  preparingLink: "Préparation du lien…",
+  downloadStarted:
+    "Téléchargement lancé par le navigateur. Une fois terminé, confirmez la réception.",
+  confirmReceived: "J'ai reçu le fichier",
+  dismiss: "Ignorer",
+  received: "Reçu ✓",
+  actionFailed: "Action impossible, réessayez.",
 } as const;
 
 const uploadErrors: Record<string, string> = {

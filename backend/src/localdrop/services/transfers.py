@@ -99,7 +99,7 @@ class TransferService:
             size,
             transfer.total_chunks,
         )
-        self._events.publish("transfer.created", _transfer_event(transfer))
+        self._events.publish("transfer.created", transfer_event(transfer))
         return transfer
 
     # ------------------------------------------------------------------ lecture
@@ -110,6 +110,12 @@ class TransferService:
             raise NotFoundError("Transfert introuvable", code="TRANSFER_NOT_FOUND")
         return transfer
 
+    def _own_upload(self, device: Device, transfer_id: str) -> Transfer:
+        transfer = self.get(device, transfer_id)
+        if transfer.direction is not Direction.UPLOAD:
+            raise NotFoundError("Transfert entrant introuvable", code="TRANSFER_NOT_FOUND")
+        return transfer
+
     def list_for(self, device: Device) -> list[Transfer]:
         return self._repo.list_for_device(device.id)
 
@@ -117,11 +123,11 @@ class TransferService:
         return self._repo.list_all()
 
     def received_chunks(self, device: Device, transfer_id: str) -> list[int]:
-        self.get(device, transfer_id)
+        self._own_upload(device, transfer_id)
         return sorted(self._repo.get_chunks(transfer_id))
 
     def expected_chunk_size(self, device: Device, transfer_id: str, index: int) -> int:
-        return self.get(device, transfer_id).expected_chunk_size(index)
+        return self._own_upload(device, transfer_id).expected_chunk_size(index)
 
     # ------------------------------------------------------------------ blocs
     def put_chunk(
@@ -130,7 +136,7 @@ class TransferService:
         """Valide puis écrit un bloc. Renvoie (transfert, déjà_reçu)."""
         declared = declared_sha256.lower()
         with self._lock_for(transfer_id):
-            transfer = self.get(device, transfer_id)
+            transfer = self._own_upload(device, transfer_id)
             expected_size = transfer.expected_chunk_size(index)
 
             existing = self._repo.get_chunks(transfer_id).get(index)
@@ -190,7 +196,7 @@ class TransferService:
             return self._complete_locked(device, transfer_id, sha256.lower())
 
     def _complete_locked(self, device: Device, transfer_id: str, sha256: str) -> Transfer:
-        transfer = self.get(device, transfer_id)
+        transfer = self._own_upload(device, transfer_id)
         now = self._clock()
 
         # Fichier vide : aucun bloc, on passe directement en transfert.
@@ -238,7 +244,7 @@ class TransferService:
             transfer.error_code = error_code
             self._repo.save(transfer)
             logger.warning("Transfert %s en échec : %s", transfer.id, error_code)
-            self._events.publish("transfer.failed", _transfer_event(transfer))
+            self._events.publish("transfer.failed", transfer_event(transfer))
             return transfer
 
         final_path = self._storage.publish(transfer.id, transfer.safe_filename)
@@ -247,20 +253,20 @@ class TransferService:
         transfer.final_path = str(final_path)
         transfer.safe_filename = final_path.name
         self._repo.save(transfer)
-        self._events.publish("transfer.completed", _transfer_event(transfer))
+        self._events.publish("transfer.completed", transfer_event(transfer))
         return transfer
 
     # ------------------------------------------------------------------ annulation
     def cancel(self, device: Device, transfer_id: str) -> Transfer:
         with self._lock_for(transfer_id):
-            transfer = self.get(device, transfer_id)
+            transfer = self._own_upload(device, transfer_id)
             previous = transfer.status
             transfer.transition(TransferStatus.CANCELLED, self._clock())
             if not self._repo.save(transfer, expected_status=previous):
                 raise _already_finalizing()
             self._storage.delete_temp(transfer_id)
         logger.info("Transfert %s annulé", transfer_id)
-        self._events.publish("transfer.cancelled", _transfer_event(transfer))
+        self._events.publish("transfer.cancelled", transfer_event(transfer))
         return transfer
 
     def has_active_transfers(self) -> bool:
@@ -278,7 +284,7 @@ class TransferService:
         if last is not None and now - last < _PROGRESS_MIN_INTERVAL and not is_last_chunk:
             return
         self._last_progress[transfer.id] = now
-        self._events.publish("transfer.progress", _transfer_event(transfer))
+        self._events.publish("transfer.progress", transfer_event(transfer))
 
 
 def _already_finalizing(status: TransferStatus | None = None) -> ConflictError:
@@ -289,7 +295,8 @@ def _already_finalizing(status: TransferStatus | None = None) -> ConflictError:
     )
 
 
-def _transfer_event(transfer: Transfer) -> dict[str, object]:
+def transfer_event(transfer: Transfer) -> dict[str, object]:
+    """Charge utile des événements transfer.* (bus, WebSocket, desktop)."""
     return {
         "transfer_id": transfer.id,
         "device_id": transfer.device_id,
@@ -299,4 +306,5 @@ def _transfer_event(transfer: Transfer) -> dict[str, object]:
         "total_size": transfer.total_size,
         "received_bytes": transfer.received_bytes,
         "error_code": transfer.error_code,
+        "fully_served": transfer.fully_served,
     }

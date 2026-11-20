@@ -1,13 +1,22 @@
 import type { JoinParams } from "../features/pairing/joinLink";
 import { type PairingOptions, type PairingState, usePairing } from "../features/pairing/usePairing";
+import { ReceivePanel } from "../features/receive/ReceivePanel";
 import { SendPanel } from "../features/send/SendPanel";
-import { pairingApi, type TransferApi, transferApi } from "../services/api";
+import {
+  pairingApi,
+  type ReceiveApi,
+  receiveApi,
+  type TransferApi,
+  transferApi,
+} from "../services/api";
 import { messages } from "./messages";
 
 export interface AppProps {
   joinParams?: JoinParams | null;
   pairing?: PairingOptions;
   transfers?: TransferApi;
+  receive?: ReceiveApi;
+  receivePollMs?: number;
 }
 
 const defaultPairing: PairingOptions = { api: pairingApi };
@@ -61,6 +70,8 @@ export function App({
   joinParams = null,
   pairing = defaultPairing,
   transfers = transferApi,
+  receive = receiveApi,
+  receivePollMs,
 }: AppProps) {
   const state = usePairing(joinParams, pairing);
   const { title, text, tone } = describe(state);
@@ -82,7 +93,16 @@ export function App({
         <p>{text}</p>
       </section>
 
-      {state.kind === "connected" && <SendPanel token={state.token} api={transfers} />}
+      {state.kind === "connected" && (
+        <>
+          <SendPanel token={state.token} api={transfers} />
+          <ReceivePanel
+            token={state.token}
+            api={receive}
+            {...(receivePollMs ? { pollMs: receivePollMs } : {})}
+          />
+        </>
+      )}
 
       <p role="note" className="mt-auto text-sm text-warning">
         {messages.trustedNetworkWarning}

@@ -27,9 +27,16 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Transferts en mémoire** (`InMemoryTransferRepository`) : la persistance et la reprise après redémarrage arrivent avec SQLite (phase 6/7).
 - **Fichiers reçus** : marqués `Zone.Identifier` (ZoneId=3), jamais ouverts ni exécutés.
 
+## Décisions prises en phase 4 (PC → téléphone)
+
+- **Pas de copie** : le PC propose un fichier à **un** appareil approuvé. Le chemin, la taille et `mtime_ns` sont mémorisés. À chaque téléchargement, la source est revérifiée : un fichier modifié ou supprimé donne 410 (`SOURCE_CHANGED` / `SOURCE_UNAVAILABLE`).
+- **Authentification des liens** : le téléphone obtient par Bearer un **ticket** (`POST /transfers/{id}/download-ticket`, 15 min). Ce ticket est lié au transfert et à l'appareil, et **réutilisable pendant sa durée de vie** pour permettre la reprise par `Range`. Il est révoqué à la confirmation, à l'annulation, et dès que l'appareil est révoqué. Le client le récupère à l'avance et affiche un vrai `<a href download>` : le tap direct évite les blocages iOS des téléchargements lancés après un `await`. Le ticket figure dans l'URL, mais les logs d'accès sont désactivés, le filtre masque `ticket=` et `Referrer-Policy: no-referrer` est en place.
+- **Accusé de réception** (§6.3) : le premier téléchargement fait passer en `transferring`. Un envoi complet jusqu'au dernier octet est noté `fully_served`, ce qui reste **indicatif**. Seul `POST /transfers/{id}/confirm` (bouton « J'ai reçu le fichier ») fait passer en `completed`.
+- **Sécurité du contenu servi** : toujours `application/octet-stream`, en `attachment`, avec `Content-Security-Policy: sandbox` et `nosniff`. Un `.html` proposé par le PC ne peut donc jamais s'exécuter dans l'origine LocalDrop.
+- **Reprise** : `Range` est géré nativement par le `FileResponse` de Starlette (testé : 206 et assemblage identique).
+
 ## Décisions ouvertes
 
-- Accusé de réception fiable des téléchargements sortants (§6.3).
-- Authentification des téléchargements par lien (ticket court à usage unique ou cookie).
+- Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement) : à évaluer en phase 9.
 - Persistance des appareils approuvés après redémarrage du PC (ou nouvel appairage obligatoire).
 - Politique de conservation de l'historique.

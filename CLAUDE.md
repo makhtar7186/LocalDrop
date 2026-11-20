@@ -8,12 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 3 terminées. Le premier jalon technique (§18.1) est couvert.**
+**Avancement : phases 0 à 4 terminées. Les transferts fonctionnent dans les deux sens.**
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
 
-Prochaine étape : phase 4 (téléchargement PC → téléphone). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 4 : PC → téléphone via [services/downloads.py](backend/src/localdrop/services/downloads.py). Le fichier source n'est pas copié. Le téléchargement passe par un ticket court en query, avec reprise `Range`, et n'est `completed` que sur accusé `POST …/confirm`. Les opérations d'upload refusent les transferts sortants (`_own_upload`).
+
+Prochaine étape : phase 5 (WebSocket et progression temps réel). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -77,6 +79,7 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/mypy                                           # strict, paquets configurés dans pyproject.toml
 .venv/Scripts/python -m localdrop                            # serveur : lie 127.0.0.1 + IP privées, affiche le QR Code
 .venv/Scripts/python -m localdrop.devtools qr|devices|transfers|approve <id>|reject <id>|revoke [<id>]   # admin en dev
+.venv/Scripts/python -m localdrop.devtools send <fichier> [--device <id>] | cancel <transfer_id>   # PC -> téléphone
 # LOCALDROP_LAN_ENABLED=false : loopback seul (évite la boîte de dialogue du pare-feu lors des tests locaux)
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)
