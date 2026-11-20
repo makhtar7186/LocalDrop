@@ -27,6 +27,7 @@ def settings(tmp_path: Path) -> Settings:
         chunk_size=64 * 1024,
         network_poll_seconds=0,
         free_space_margin=0,
+        ws_auth_timeout_seconds=0.5,
     )
 
 

@@ -35,8 +35,27 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Sécurité du contenu servi** : toujours `application/octet-stream`, en `attachment`, avec `Content-Security-Policy: sandbox` et `nosniff`. Un `.html` proposé par le PC ne peut donc jamais s'exécuter dans l'origine LocalDrop.
 - **Reprise** : `Range` est géré nativement par le `FileResponse` de Starlette (testé : 206 et assemblage identique).
 
+## Décisions prises en phase 5 (temps réel)
+
+- **Protocole `/ws`** :
+  - authentification par **premier message** `{"type":"auth","token":…}` en moins de 5 s (`ws_auth_timeout_seconds`), donc jamais de jeton dans l'URL ;
+  - les appareils **en attente** sont admis, pour apprendre leur approbation instantanément ;
+  - le PC s'authentifie avec `{"type":"auth","admin_token":…}`, depuis le loopback uniquement ;
+  - enveloppe `{id, type, ts, data}`, `ping`/`pong` applicatif ;
+  - codes de fermeture : 4401 (non autorisé ou révoqué), 4403 (origine étrangère ou appareil refusé), 4408 (authentification trop tardive), 4409 (client trop lent, à resynchroniser), 1001 (arrêt).
+- **Origine** : un navigateur doit présenter une `Origin` identique à `Host`, sinon la poignée de main est refusée (HTTP 403, anti-CSWSH). Les clients non navigateurs, sans `Origin`, sont admis.
+- **Hub** :
+  - les événements publiés depuis n'importe quel thread sont reportés sur la boucle asyncio **de chaque connexion** ;
+  - une seule file d'envoi par connexion, donc ordre garanti ;
+  - abonnement au bus idempotent ;
+  - un appareil ne voit que `transfer.*` et `device.*` le concernant ;
+  - `device.revoked` ou `device.rejected` ferment immédiatement ses sockets.
+- **Présence (FR-012)** : le premier socket ouvert passe l'appareil en `connected`, la fermeture du dernier le passe en `disconnected`. Toute requête authentifiée le rebascule en `connected`.
+- **Client** : le WebSocket n'est **jamais** la source de vérité. Chaque événement pertinent et chaque (re)connexion déclenchent une relecture REST, et l'actualisation périodique reste en filet de sécurité (30 s connecté, 15 s réception). Il n'y a pas de reconnexion après 4401/4403. La reconnexion est immédiate au retour au premier plan (`visibilitychange`, iOS).
+
 ## Décisions ouvertes
 
+- Progression octet par octet des téléchargements sortants (actuellement : démarré, puis servi en entier).
 - Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement) : à évaluer en phase 9.
 - Persistance des appareils approuvés après redémarrage du PC (ou nouvel appairage obligatoire).
 - Politique de conservation de l'historique.

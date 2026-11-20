@@ -25,6 +25,7 @@ desktop = [
 ]
 dev = [
     "pytest>=8.2",
+    "pytest-timeout>=2.3",
     "pytest-qt>=4.4",
     "httpx>=0.27",
     "hypothesis>=6.100",
@@ -70,6 +71,7 @@ ignore_missing_imports = true
 minversion = "8.0"
 testpaths = ["backend/tests", "apps/desktop/tests", "tests"]
 addopts = ["--import-mode=importlib", "--strict-markers", "-ra"]
+timeout = 30  # filet de sécurité : un WebSocket qui n'arrive jamais ne bloque pas la suite
 markers = [
     "unit: tests rapides sans I/O",
     "integration: tests avec l'application, la base et le disque",

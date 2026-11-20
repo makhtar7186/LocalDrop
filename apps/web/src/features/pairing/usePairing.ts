@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useRealtimeNudge } from "../../hooks/useRealtimeNudge";
 import { ApiError, NetworkError, type PairingApi } from "../../services/api";
 import {
   clearCredentials,
@@ -7,6 +8,7 @@ import {
   loadCredentials,
   saveCredentials,
 } from "../../services/credentials";
+import type { RealtimeConnection, RealtimeEvent } from "../../services/realtime";
 import type { JoinResponse } from "../../services/schemas";
 import { defaultDeviceName, detectPlatform, type JoinParams } from "./joinLink";
 
@@ -14,7 +16,7 @@ export type PairingState =
   | { kind: "idle" } // aucun jeton : scanner le QR Code
   | { kind: "joining" }
   | { kind: "checking" } // jeton présent, vérification en cours
-  | { kind: "pending"; displayName: string }
+  | { kind: "pending"; displayName: string; token: string }
   | { kind: "connected"; serverName: string; displayName: string; token: string }
   | { kind: "rejected" }
   | { kind: "ended"; reason: "expired" | "revoked" }
@@ -30,7 +32,11 @@ export interface PairingOptions {
   connectedPollMs?: number;
   /** Nouvelle tentative quand le serveur est injoignable. */
   offlineRetryMs?: number;
+  /** Temps réel : approbation et révocation prises en compte immédiatement. */
+  realtime?: RealtimeConnection;
 }
+
+const isDeviceEvent = (event: RealtimeEvent) => event.type.startsWith("device.");
 
 const POLLING_KINDS = new Set<PairingState["kind"]>(["checking", "pending", "connected", "offline"]);
 
@@ -54,7 +60,15 @@ function isTerminal(state: PairingState): boolean {
 }
 
 export function usePairing(joinParams: JoinParams | null, options: PairingOptions): PairingState {
-  const { api, pendingPollMs = 2000, connectedPollMs = 10000, offlineRetryMs = 3000 } = options;
+  const {
+    api,
+    pendingPollMs = 5000,
+    connectedPollMs = 30000, // filet de sécurité : le temps réel signale les révocations
+    offlineRetryMs = 3000,
+    realtime,
+  } = options;
+  const nudge = useRealtimeNudge(realtime, isDeviceEvent);
+  const lastNudge = useRef(nudge);
 
   const [credentials, setCredentials] = useState<Credentials | null>(() =>
     joinParams ? null : loadCredentials(),
@@ -97,8 +111,10 @@ export function usePairing(joinParams: JoinParams | null, options: PairingOption
   useEffect(() => {
     if (!credentials || !POLLING_KINDS.has(state.kind)) return;
     let cancelled = false;
+    const nudged = lastNudge.current !== nudge;
+    lastNudge.current = nudge;
     const delay =
-      state.kind === "checking"
+      state.kind === "checking" || nudged
         ? 0
         : state.kind === "pending"
           ? pendingPollMs
@@ -118,7 +134,11 @@ export function usePairing(joinParams: JoinParams | null, options: PairingOption
               token: credentials.token,
             });
           } else {
-            setState({ kind: "pending", displayName: status.display_name });
+            setState({
+              kind: "pending",
+              displayName: status.display_name,
+              token: credentials.token,
+            });
           }
         },
         (error: unknown) => {
@@ -137,7 +157,7 @@ export function usePairing(joinParams: JoinParams | null, options: PairingOption
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [api, credentials, state, pendingPollMs, connectedPollMs, offlineRetryMs]);
+  }, [api, credentials, state, nudge, pendingPollMs, connectedPollMs, offlineRetryMs]);
 
   return state;
 }

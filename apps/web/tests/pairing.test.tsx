@@ -6,6 +6,7 @@ import type { PairingOptions } from "../src/features/pairing/usePairing";
 import { ApiError, NetworkError, type PairingApi } from "../src/services/api";
 import { loadCredentials, saveCredentials } from "../src/services/credentials";
 import type { DeviceStatus, SessionStatus } from "../src/services/schemas";
+import { FakeRealtime } from "./fakes";
 
 const JOIN = { sessionId: "sess", secret: "secret" };
 
@@ -47,7 +48,7 @@ beforeEach(() => window.localStorage.clear());
 
 describe("appairage", () => {
   it("affiche l'invitation à scanner sans jeton", () => {
-    render(<App pairing={fast(fakeApi([sessionStatus("pending")]))} />);
+    render(<App realtime={new FakeRealtime()} pairing={fast(fakeApi([sessionStatus("pending")]))} />);
     expect(panel()).toHaveAttribute("data-state", "idle");
   });
 
@@ -55,7 +56,7 @@ describe("appairage", () => {
     const api = fakeApi([sessionStatus("pending"), sessionStatus("connected")]);
     render(
       <StrictMode>
-        <App joinParams={JOIN} pairing={fast(api)} />
+        <App realtime={new FakeRealtime()} joinParams={JOIN} pairing={fast(api)} />
       </StrictMode>,
     );
 
@@ -72,7 +73,7 @@ describe("appairage", () => {
 
   it("reprend une session existante au rechargement de la page", async () => {
     saveCredentials({ deviceId: "dev1", token: "tok" });
-    render(<App pairing={fast(fakeApi([sessionStatus("connected")]))} />);
+    render(<App realtime={new FakeRealtime()} pairing={fast(fakeApi([sessionStatus("connected")]))} />);
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "connected"));
   });
 
@@ -82,7 +83,7 @@ describe("appairage", () => {
       sessionStatus("connected"),
       new ApiError(401, "DEVICE_UNAUTHORIZED", "Session terminée"),
     ]);
-    render(<App pairing={fast(api)} />);
+    render(<App realtime={new FakeRealtime()} pairing={fast(api)} />);
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "ended"));
     expect(screen.getByText(/Session terminée/)).toBeInTheDocument();
     expect(loadCredentials()).toBeNull();
@@ -91,7 +92,7 @@ describe("appairage", () => {
   it("FR-011 : un refus est affiché et le jeton oublié", async () => {
     saveCredentials({ deviceId: "dev1", token: "tok" });
     const api = fakeApi([new ApiError(403, "DEVICE_REJECTED", "Appareil refusé")]);
-    render(<App pairing={fast(api)} />);
+    render(<App realtime={new FakeRealtime()} pairing={fast(api)} />);
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "rejected"));
     expect(loadCredentials()).toBeNull();
   });
@@ -101,14 +102,14 @@ describe("appairage", () => {
     api.join = vi.fn(() =>
       Promise.reject(new ApiError(401, "PAIRING_SECRET_INVALID", "QR Code invalide")),
     );
-    render(<App joinParams={JOIN} pairing={fast(api)} />);
+    render(<App realtime={new FakeRealtime()} joinParams={JOIN} pairing={fast(api)} />);
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "invalid_qr"));
   });
 
   it("FR-043 : hors connexion puis retour du réseau", async () => {
     saveCredentials({ deviceId: "dev1", token: "tok" });
     const api = fakeApi([new NetworkError(), sessionStatus("connected")]);
-    render(<App pairing={fast(api)} />);
+    render(<App realtime={new FakeRealtime()} pairing={fast(api)} />);
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "offline"));
     await waitFor(() => expect(panel()).toHaveAttribute("data-state", "connected"));
     expect(loadCredentials()).not.toBeNull();

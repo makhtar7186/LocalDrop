@@ -5,6 +5,7 @@
     python -m localdrop.devtools transfers     # transferts (état, progression, chemin final)
     python -m localdrop.devtools send <fichier> [--device <id>]   # PC -> téléphone
     python -m localdrop.devtools cancel <transfer_id>              # annule un envoi du PC
+    python -m localdrop.devtools watch                             # événements en direct
     python -m localdrop.devtools approve <id>
     python -m localdrop.devtools reject <id>
     python -m localdrop.devtools revoke <id>   # sans id : ferme toute la session
@@ -65,6 +66,34 @@ def _print_qr(settings: Settings) -> None:
     qr.print_ascii(out=sys.stdout, invert=True)
 
 
+def _watch(settings: Settings) -> None:
+    """Affiche les événements temps réel (WebSocket admin, loopback uniquement)."""
+    from websockets.exceptions import ConnectionClosed
+    from websockets.sync.client import connect
+
+    try:
+        token = settings.admin_token_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        sys.exit("Serveur LocalDrop non démarré (jeton admin introuvable).")
+    with contextlib.suppress(AttributeError, ValueError):
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    try:
+        with connect(f"ws://127.0.0.1:{settings.port}/ws") as ws:
+            ws.send(json.dumps({"type": "auth", "admin_token": token}))
+            print("Événements LocalDrop (Ctrl+C pour quitter) :", flush=True)
+            for raw in ws:
+                event = json.loads(raw)
+                data = event.get("data", {})
+                details = " ".join(
+                    f"{k}={v}" for k, v in data.items() if k not in ("device_id",) and v is not None
+                )
+                print(f"{event.get('ts', '')[11:19]} {event['type']:<24} {details}", flush=True)
+    except KeyboardInterrupt:
+        pass
+    except (ConnectionClosed, OSError) as exc:
+        sys.exit(f"Connexion temps réel interrompue : {exc}")
+
+
 def _pick_device(settings: Settings, args: argparse.Namespace) -> str:
     if args.device_id:
         return str(args.device_id)
@@ -84,6 +113,7 @@ def main(argv: list[str] | None = None) -> None:
     send.add_argument("path")
     send.add_argument("--device", dest="device_id")
     sub.add_parser("cancel").add_argument("transfer_id")
+    sub.add_parser("watch")
     for name in ("approve", "reject"):
         sub.add_parser(name).add_argument("device_id")
     sub.add_parser("revoke").add_argument("device_id", nargs="?")
@@ -92,6 +122,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "qr":
         _print_qr(settings)
+        return
+    if args.command == "watch":
+        _watch(settings)
         return
     if args.command == "devices":
         result = _call(settings, "GET", "/devices")

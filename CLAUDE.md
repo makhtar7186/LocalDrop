@@ -8,14 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 4 terminées. Les transferts fonctionnent dans les deux sens.**
+**Avancement : phases 0 à 5 terminées.** Les transferts fonctionnent dans les deux sens, avec le temps réel.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
 
 - Phase 4 : PC → téléphone via [services/downloads.py](backend/src/localdrop/services/downloads.py). Le fichier source n'est pas copié. Le téléchargement passe par un ticket court en query, avec reprise `Range`, et n'est `completed` que sur accusé `POST …/confirm`. Les opérations d'upload refusent les transferts sortants (`_own_upload`).
 
-Prochaine étape : phase 5 (WebSocket et progression temps réel). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 5 : `/ws`, géré par [infrastructure/realtime/hub.py](backend/src/localdrop/infrastructure/realtime/hub.py) (protocole et codes de fermeture en tête du fichier).
+  - Côté serveur : les événements viennent du bus (`services.events`) et ne sont publiés qu'**après** enregistrement de l'état. Un nouvel événement `transfer.*` ou `device.*` doit porter `device_id` dans `data`, sinon aucun téléphone ne le reçoit.
+  - Côté web : [realtime.ts](apps/web/src/services/realtime.ts) gère la connexion, et [useRealtimeNudge](apps/web/src/hooks/useRealtimeNudge.ts) déclenche une relecture REST, jamais d'état dérivé du WebSocket seul.
+  - Tests : injecter `FakeRealtime` ([tests/fakes.ts](apps/web/tests/fakes.ts)) dans tout rendu d'`<App>`.
+
+Prochaine étape : phase 6 (blocs, manifeste, reprise : persistance et reprise après redémarrage ou rechargement). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -80,6 +85,7 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/python -m localdrop                            # serveur : lie 127.0.0.1 + IP privées, affiche le QR Code
 .venv/Scripts/python -m localdrop.devtools qr|devices|transfers|approve <id>|reject <id>|revoke [<id>]   # admin en dev
 .venv/Scripts/python -m localdrop.devtools send <fichier> [--device <id>] | cancel <transfer_id>   # PC -> téléphone
+.venv/Scripts/python -m localdrop.devtools watch             # événements temps réel (WebSocket admin)
 # LOCALDROP_LAN_ENABLED=false : loopback seul (évite la boîte de dialogue du pare-feu lors des tests locaux)
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)

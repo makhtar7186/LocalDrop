@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     pairing_secret_ttl_seconds: int = Field(default=300, ge=30)
     join_max_attempts: int = Field(default=10, ge=1)
     join_window_seconds: int = Field(default=60, ge=1)
+    ws_auth_timeout_seconds: float = Field(default=5.0, gt=0)  # premier message WebSocket
 
     # Journalisation
     log_level: LogLevel = "INFO"

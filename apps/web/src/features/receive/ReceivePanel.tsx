@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatBytes } from "../../app/format";
 import { messages } from "../../app/messages";
+import { useRealtimeNudge } from "../../hooks/useRealtimeNudge";
 import type { ReceiveApi } from "../../services/api";
+import type { RealtimeConnection, RealtimeEvent } from "../../services/realtime";
 import type { Transfer } from "../../services/schemas";
 
 // PC -> téléphone (FR-020, FR-029). Téléchargement natif du navigateur via un vrai
@@ -12,8 +14,13 @@ import type { Transfer } from "../../services/schemas";
 export interface ReceivePanelProps {
   token: string;
   api: ReceiveApi;
+  /** Filet de sécurité : le temps réel déclenche une relecture immédiate. */
   pollMs?: number;
+  realtime?: RealtimeConnection;
 }
+
+const isDownloadEvent = (event: RealtimeEvent) =>
+  event.type.startsWith("transfer.") && event.data["direction"] === "download";
 
 interface Link {
   url: string;
@@ -23,7 +30,8 @@ interface Link {
 const VISIBLE = new Set<Transfer["status"]>(["waiting", "transferring", "completed"]);
 const LINK_MARGIN_MS = 60_000; // renouveler un ticket une minute avant expiration
 
-export function ReceivePanel({ token, api, pollMs = 3000 }: ReceivePanelProps) {
+export function ReceivePanel({ token, api, pollMs = 15000, realtime }: ReceivePanelProps) {
+  const nudge = useRealtimeNudge(realtime, isDownloadEvent);
   const [items, setItems] = useState<Transfer[] | null>(null);
   const [offline, setOffline] = useState(false);
   const [links, setLinks] = useState<Record<string, Link>>({});
@@ -32,7 +40,8 @@ export function ReceivePanel({ token, api, pollMs = 3000 }: ReceivePanelProps) {
   const [actionError, setActionError] = useState(false);
   const pendingTickets = useRef(new Set<string>());
 
-  // Liste des fichiers proposés (WebSocket en phase 5 ; REST reste la source de vérité).
+  // Liste des fichiers proposés : relue à chaque événement temps réel pertinent (nudge)
+  // et périodiquement ; REST reste la source de vérité.
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
@@ -56,7 +65,7 @@ export function ReceivePanel({ token, api, pollMs = 3000 }: ReceivePanelProps) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [api, token, pollMs]);
+  }, [api, token, pollMs, nudge]);
 
   // Un ticket par fichier téléchargeable, obtenu à l'avance pour un lien direct.
   useEffect(() => {

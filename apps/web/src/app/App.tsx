@@ -1,3 +1,5 @@
+import { useEffect, useState, useSyncExternalStore } from "react";
+
 import type { JoinParams } from "../features/pairing/joinLink";
 import { type PairingOptions, type PairingState, usePairing } from "../features/pairing/usePairing";
 import { ReceivePanel } from "../features/receive/ReceivePanel";
@@ -9,6 +11,7 @@ import {
   type TransferApi,
   transferApi,
 } from "../services/api";
+import { RealtimeClient, type RealtimeConnection } from "../services/realtime";
 import { messages } from "./messages";
 
 export interface AppProps {
@@ -17,6 +20,7 @@ export interface AppProps {
   transfers?: TransferApi;
   receive?: ReceiveApi;
   receivePollMs?: number;
+  realtime?: RealtimeConnection;
 }
 
 const defaultPairing: PairingOptions = { api: pairingApi };
@@ -72,14 +76,36 @@ export function App({
   transfers = transferApi,
   receive = receiveApi,
   receivePollMs,
+  realtime: injectedRealtime,
 }: AppProps) {
-  const state = usePairing(joinParams, pairing);
+  const [realtime] = useState<RealtimeConnection>(() => injectedRealtime ?? new RealtimeClient());
+  const state = usePairing(joinParams, { ...pairing, realtime });
   const { title, text, tone } = describe(state);
+  const liveStatus = useSyncExternalStore(realtime.subscribeStatus, realtime.getStatus);
+
+  // Temps réel dès qu'un jeton existe (en attente d'approbation ou connecté).
+  const token = state.kind === "pending" || state.kind === "connected" ? state.token : null;
+  useEffect(() => {
+    if (token) realtime.connect(token);
+    else realtime.disconnect();
+  }, [realtime, token]);
+  useEffect(() => () => realtime.disconnect(), [realtime]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col gap-6 px-4 py-8">
       <header>
-        <h1 className="text-2xl font-semibold">{messages.appName}</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold">{messages.appName}</h1>
+          {token && (
+            <span
+              data-testid="live-status"
+              data-live={liveStatus}
+              className={`text-sm ${liveStatus === "open" ? "text-success" : "text-warning"}`}
+            >
+              {liveStatus === "open" ? messages.liveOn : messages.liveReconnecting}
+            </span>
+          )}
+        </div>
         <p className="text-text-muted">{messages.tagline}</p>
       </header>
 
@@ -99,6 +125,7 @@ export function App({
           <ReceivePanel
             token={state.token}
             api={receive}
+            realtime={realtime}
             {...(receivePollMs ? { pollMs: receivePollMs } : {})}
           />
         </>

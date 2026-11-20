@@ -197,6 +197,26 @@ class PairingService:
             raise UnauthorizedError("Session expirée", code="SESSION_EXPIRED")
         return device
 
+    def set_presence(self, device_id: str, *, online: bool) -> None:
+        """Présence temps réel (FR-012) : connected <-> disconnected selon les WebSocket."""
+        with self._lock:
+            device = self._repo.get_device(device_id)
+            if device is None or device.status not in (
+                DeviceStatus.CONNECTED,
+                DeviceStatus.DISCONNECTED,
+            ):
+                return
+            target = DeviceStatus.CONNECTED if online else DeviceStatus.DISCONNECTED
+            if device.status is target:
+                return
+            now = self._clock()
+            device.transition(target, now)
+            device.last_seen_at = now
+            self._repo.save_device(device)
+        self._events.publish(
+            "device.connected" if online else "device.disconnected", _device_event(device)
+        )
+
     # ------------------------------------------------------------------ administration
     def approve(self, device_id: str) -> Device:
         device = self._change_status(device_id, DeviceStatus.CONNECTED)

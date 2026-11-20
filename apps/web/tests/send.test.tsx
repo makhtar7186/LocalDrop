@@ -5,6 +5,7 @@ import { App } from "../src/app/App";
 import type { PairingApi, ReceiveApi, TransferApi } from "../src/services/api";
 import { saveCredentials } from "../src/services/credentials";
 import type { Transfer } from "../src/services/schemas";
+import { FakeRealtime } from "./fakes";
 
 const connected: PairingApi = {
   join: () => Promise.reject(new Error("non utilisé")),
@@ -71,7 +72,7 @@ it("FR-021/FR-022/FR-024 : envoie plusieurs fichiers avec progression", async ()
   saveCredentials({ deviceId: "dev1", token: "tok" });
   const api = fakeTransfers();
   render(
-    <App
+    <App realtime={new FakeRealtime()}
       pairing={{ api: connected, connectedPollMs: 60_000 }}
       transfers={api}
       receive={noDownloads}

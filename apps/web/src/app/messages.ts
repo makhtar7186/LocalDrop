@@ -46,6 +46,9 @@ export const messages = {
   dismiss: "Ignorer",
   received: "Reçu ✓",
   actionFailed: "Action impossible, réessayez.",
+
+  liveOn: "● En direct",
+  liveReconnecting: "○ Reconnexion…",
 } as const;
 
 const uploadErrors: Record<string, string> = {

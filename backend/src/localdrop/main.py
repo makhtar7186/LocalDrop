@@ -20,7 +20,9 @@ from localdrop import __version__
 from localdrop.api.errors import install_error_handlers
 from localdrop.api.middleware import PrivateNetworkOnlyMiddleware, SecurityHeadersMiddleware
 from localdrop.api.v1.router import api_router
+from localdrop.api.ws import router as ws_router
 from localdrop.core.config import Settings
+from localdrop.infrastructure.realtime.hub import RealtimeHub
 from localdrop.services.container import AppServices, build_services
 
 logger = logging.getLogger(__name__)
@@ -29,15 +31,18 @@ logger = logging.getLogger(__name__)
 def create_app(settings: Settings | None = None, services: AppServices | None = None) -> FastAPI:
     settings = settings or (services.settings if services else Settings())
     services = services or build_services(settings)
+    hub = RealtimeHub(services, auth_timeout=settings.ws_auth_timeout_seconds)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        hub.start()
         monitor: asyncio.Task[None] | None = None
         if settings.network_poll_seconds > 0:
             monitor = asyncio.create_task(services.network.run(settings.network_poll_seconds))
         try:
             yield
         finally:
+            await hub.stop()
             if monitor is not None:
                 monitor.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -53,6 +58,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     )
     app.state.settings = settings
     app.state.services = services
+    app.state.hub = hub
 
     install_error_handlers(app)
     if not settings.allow_public_clients:
@@ -60,6 +66,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     # Ajouté en dernier = le plus externe : les en-têtes couvrent aussi les refus.
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(api_router)
+    app.include_router(ws_router)
     _mount_web_ui(app, settings)
     return app
 
