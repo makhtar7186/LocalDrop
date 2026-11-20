@@ -15,7 +15,7 @@ export type PairingState =
   | { kind: "joining" }
   | { kind: "checking" } // jeton présent, vérification en cours
   | { kind: "pending"; displayName: string }
-  | { kind: "connected"; serverName: string; displayName: string }
+  | { kind: "connected"; serverName: string; displayName: string; token: string }
   | { kind: "rejected" }
   | { kind: "ended"; reason: "expired" | "revoked" }
   | { kind: "invalid_qr" }
@@ -115,6 +115,7 @@ export function usePairing(joinParams: JoinParams | null, options: PairingOption
               kind: "connected",
               serverName: status.server_name,
               displayName: status.display_name,
+              token: credentials.token,
             });
           } else {
             setState({ kind: "pending", displayName: status.display_name });

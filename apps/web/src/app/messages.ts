@@ -20,4 +20,25 @@ export const messages = {
   offline:
     "PC injoignable. Vérifiez que le téléphone et le PC sont sur le même réseau. Nouvelle tentative…",
   genericError: (message: string) => `Erreur : ${message}`,
+
+  sendTitle: "Envoyer vers le PC",
+  chooseFiles: "Choisir des fichiers",
+  keepPageOpen: "Gardez cette page ouverte et l'écran allumé pendant le transfert.",
+  noUploads: "Aucun envoi pour le moment.",
+  uploadsListLabel: "Envois en cours et terminés",
+  uploadQueued: "En attente…",
+  uploadRetrying: "PC injoignable, nouvelle tentative…",
+  uploadVerifying: "Vérification de l'intégrité…",
+  uploadCompleted: "Reçu sur le PC ✓",
+  uploadCancelled: "Annulé",
+  uploadFailed: (code: string) => uploadErrors[code] ?? `Échec (${code})`,
 } as const;
+
+const uploadErrors: Record<string, string> = {
+  INSUFFICIENT_DISK_SPACE: "Échec : espace disque insuffisant sur le PC",
+  FILE_TOO_LARGE: "Échec : fichier trop volumineux",
+  FILE_HASH_MISMATCH: "Échec : fichier altéré pendant le transfert, renvoyez-le",
+  FILE_SIZE_MISMATCH: "Échec : taille incorrecte, renvoyez le fichier",
+  NETWORK_UNREACHABLE: "Échec : PC injoignable",
+  DEVICE_UNAUTHORIZED: "Échec : session terminée",
+};

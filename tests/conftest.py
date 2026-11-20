@@ -26,6 +26,7 @@ def settings(tmp_path: Path) -> Settings:
         web_dist_dir=None,
         chunk_size=64 * 1024,
         network_poll_seconds=0,
+        free_space_margin=0,
     )
 
 

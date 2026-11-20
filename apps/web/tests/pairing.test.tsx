@@ -41,7 +41,7 @@ const fast = (api: PairingApi): PairingOptions => ({
   offlineRetryMs: 5,
 });
 
-const panel = () => screen.getByText((_, el) => el?.tagName === "SECTION");
+const panel = () => screen.getByTestId("pairing-status");
 
 beforeEach(() => window.localStorage.clear());
 

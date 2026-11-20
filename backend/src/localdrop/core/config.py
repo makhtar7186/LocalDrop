@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     chunk_size: int = Field(default=4 * MIB, ge=64 * 1024, le=64 * MIB)
     max_concurrent_transfers: int = Field(default=2, ge=1, le=8)
     temp_retention_hours: int = Field(default=24, ge=1)
+    max_file_size: int | None = Field(default=None, ge=0)  # None = limité par le disque
+    free_space_margin: int = Field(default=64 * MIB, ge=0)  # réserve laissée libre sur le disque
 
     # Réseau (§8.1, §12.2-11)
     lan_enabled: bool = True  # lier aussi les IPv4 privées détectées (sinon loopback seul)

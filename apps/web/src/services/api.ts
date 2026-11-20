@@ -1,12 +1,17 @@
 import type { z } from "zod";
 
 import {
+  type ChunkAck,
+  chunkAckSchema,
+  chunkListSchema,
   errorBodySchema,
   joinResponseSchema,
   type JoinResponse,
   type Platform,
   sessionStatusSchema,
   type SessionStatus,
+  type Transfer,
+  transferSchema,
 } from "./schemas";
 
 const API_BASE = "/api/v1";
@@ -44,7 +49,7 @@ async function request<T>(
       ...rest,
       headers: {
         Accept: "application/json",
-        ...(rest.body ? { "Content-Type": "application/json" } : {}),
+        ...(typeof rest.body === "string" ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...headers,
       },
@@ -87,4 +92,50 @@ export const pairingApi: PairingApi = {
       }),
     }),
   status: (token) => request(sessionStatusSchema, "/sessions/status", { token }),
+};
+
+export interface TransferApi {
+  create(token: string, filename: string, size: number): Promise<Transfer>;
+  putChunk(
+    token: string,
+    transferId: string,
+    index: number,
+    data: Uint8Array<ArrayBuffer>,
+    sha256: string,
+  ): Promise<ChunkAck>;
+  receivedChunks(token: string, transferId: string): Promise<number[]>;
+  complete(token: string, transferId: string, sha256: string): Promise<Transfer>;
+  cancel(token: string, transferId: string): Promise<Transfer>;
+}
+
+const enc = encodeURIComponent;
+
+export const transferApi: TransferApi = {
+  create: (token, filename, size) =>
+    request(transferSchema, "/transfers", {
+      method: "POST",
+      token,
+      body: JSON.stringify({ filename, size }),
+    }),
+  putChunk: (token, transferId, index, data, sha256) =>
+    request(chunkAckSchema, `/transfers/${enc(transferId)}/chunks/${index}`, {
+      method: "PUT",
+      token,
+      body: data,
+      headers: { "Content-Type": "application/octet-stream", "X-Chunk-SHA256": sha256 },
+    }),
+  receivedChunks: async (token, transferId) => {
+    const result = await request(chunkListSchema, `/transfers/${enc(transferId)}/chunks`, {
+      token,
+    });
+    return result.received;
+  },
+  complete: (token, transferId, sha256) =>
+    request(transferSchema, `/transfers/${enc(transferId)}/complete`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ sha256 }),
+    }),
+  cancel: (token, transferId) =>
+    request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
 };

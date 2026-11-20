@@ -2,6 +2,7 @@
 
     python -m localdrop.devtools qr            # QR Code courant (à usage unique)
     python -m localdrop.devtools devices       # appareils de la session
+    python -m localdrop.devtools transfers     # transferts (état, progression, chemin final)
     python -m localdrop.devtools approve <id>
     python -m localdrop.devtools reject <id>
     python -m localdrop.devtools revoke <id>   # sans id : ferme toute la session
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("qr")
     sub.add_parser("devices")
+    sub.add_parser("transfers")
     for name in ("approve", "reject"):
         sub.add_parser(name).add_argument("device_id")
     sub.add_parser("revoke").add_argument("device_id", nargs="?")
@@ -77,6 +79,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "devices":
         result = _call(settings, "GET", "/devices")
+    elif args.command == "transfers":
+        result = _call(settings, "GET", "/admin/transfers")
     elif args.command in ("approve", "reject"):
         body = {"device_id": args.device_id, "approve": args.command == "approve"}
         result = _call(settings, "POST", "/sessions/approve", body)

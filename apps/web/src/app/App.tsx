@@ -1,11 +1,13 @@
 import type { JoinParams } from "../features/pairing/joinLink";
 import { type PairingOptions, type PairingState, usePairing } from "../features/pairing/usePairing";
-import { pairingApi } from "../services/api";
+import { SendPanel } from "../features/send/SendPanel";
+import { pairingApi, type TransferApi, transferApi } from "../services/api";
 import { messages } from "./messages";
 
 export interface AppProps {
   joinParams?: JoinParams | null;
   pairing?: PairingOptions;
+  transfers?: TransferApi;
 }
 
 const defaultPairing: PairingOptions = { api: pairingApi };
@@ -55,7 +57,11 @@ function describe(state: PairingState): { title?: string; text: string; tone: To
   }
 }
 
-export function App({ joinParams = null, pairing = defaultPairing }: AppProps) {
+export function App({
+  joinParams = null,
+  pairing = defaultPairing,
+  transfers = transferApi,
+}: AppProps) {
   const state = usePairing(joinParams, pairing);
   const { title, text, tone } = describe(state);
 
@@ -68,12 +74,15 @@ export function App({ joinParams = null, pairing = defaultPairing }: AppProps) {
 
       <section
         aria-live="polite"
+        data-testid="pairing-status"
         data-state={state.kind}
         className={`rounded-lg border bg-surface-raised p-4 ${toneClasses[tone]}`}
       >
         {title && <h2 className="mb-1 text-lg font-medium">{title}</h2>}
         <p>{text}</p>
       </section>
+
+      {state.kind === "connected" && <SendPanel token={state.token} api={transfers} />}
 
       <p role="note" className="mt-auto text-sm text-warning">
         {messages.trustedNetworkWarning}

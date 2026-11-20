@@ -36,3 +36,44 @@ export const errorBodySchema = z.object({
     message: z.string(),
   }),
 });
+
+export const transferStatusSchema = z.enum([
+  "created",
+  "waiting",
+  "transferring",
+  "paused",
+  "verifying",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type TransferStatus = z.infer<typeof transferStatusSchema>;
+
+export const transferSchema = z.object({
+  id: z.string(),
+  direction: z.enum(["upload", "download"]),
+  filename: z.string(),
+  safe_filename: z.string(),
+  size: z.number().int().nonnegative(),
+  chunk_size: z.number().int().positive(),
+  total_chunks: z.number().int().nonnegative(),
+  status: transferStatusSchema,
+  received_bytes: z.number().int().nonnegative(),
+  sha256: z.string().nullable(),
+  error_code: z.string().nullable(),
+});
+export type Transfer = z.infer<typeof transferSchema>;
+
+export const chunkAckSchema = z.object({
+  index: z.number().int().nonnegative(),
+  already_received: z.boolean(),
+  received_bytes: z.number().int().nonnegative(),
+  status: transferStatusSchema,
+});
+export type ChunkAck = z.infer<typeof chunkAckSchema>;
+
+export const chunkListSchema = z.object({
+  transfer_id: z.string(),
+  total_chunks: z.number().int().nonnegative(),
+  received: z.array(z.number().int().nonnegative()),
+});

@@ -19,6 +19,14 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Appairage** : un jeton d'appareil est émis dès `join` (statut `pending`). Il n'ouvre les routes de transfert qu'après approbation. Le secret du QR Code tourne après chaque `join` réussi.
 - **Sessions en mémoire** : dépôt `InMemorySessionRepository` derrière le port `SessionRepository`. Il sera remplacé par SQLite (phase 6/7) sans changer les services.
 
+## Décisions prises en phase 3
+
+- **Arborescence de réception** : les fichiers vérifiés sont publiés **directement** dans le dossier de réception (`Downloads\LocalDrop` par défaut). Les temporaires `<id>.part` sont dans `<réception>\.localdrop-tmp` (caché, même volume, donc renommage atomique). La base et les logs restent dans `%LOCALAPPDATA%\LocalDrop` (§15), ce qui remplace la structure `incoming/temporary/database/logs` du §13.1.
+- **Protocole** : le protocole par blocs complet du §9.2 est en place dès la phase 3. Le hash global est envoyé à `POST /complete`. Un bloc tient en mémoire (≤ `chunk_size`), jamais le fichier entier. L'écriture sur disque, le hachage et la publication tournent dans un thread.
+- **Concurrence** : verrou par transfert pour les blocs et la finalisation, plus un update conditionnel `transferring → verifying`.
+- **Transferts en mémoire** (`InMemoryTransferRepository`) : la persistance et la reprise après redémarrage arrivent avec SQLite (phase 6/7).
+- **Fichiers reçus** : marqués `Zone.Identifier` (ZoneId=3), jamais ouverts ni exécutés.
+
 ## Décisions ouvertes
 
 - Accusé de réception fiable des téléchargements sortants (§6.3).
