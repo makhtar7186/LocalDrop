@@ -11,6 +11,7 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 | [ADR-005](ADR-005-protocole-par-blocs.md) | Protocole de transfert par blocs | Accepté (points ouverts) |
 | [ADR-006](ADR-006-http-local-mvp.md) | HTTP local pour le MVP et stratégie de sécurisation | Accepté |
 | [ADR-007](ADR-007-pyside6-desktop.md) | PySide6 pour le desktop | Accepté |
+| [ADR-008](ADR-008-distribution-windows.md) | Distribution Windows : PyInstaller onedir en archive zip | Accepté |
 
 ## Décisions prises en phase 2 (à formaliser si elles évoluent)
 
@@ -140,6 +141,18 @@ Rapport complet : [audit-phase-10.md](../security/audit-phase-10.md).
   - Ils ne remplacent pas la matrice manuelle (Safari iOS, Wi-Fi réel, pare-feu).
 - **Accueil mobile** : la carte d'état de l'appairage disparaît une fois connecté. Elle faisait doublon avec « Connecté à <PC> », ce que les captures du test navigateur ont révélé.
 
+## Décisions prises en phase 11 (exécutable et documentation)
+
+- **[ADR-008](ADR-008-distribution-windows.md)** :
+  - PyInstaller en mode onedir, fenêtré, sans UPX, sans signature ;
+  - livraison en archive zip portable, avec le SHA-256 et le guide utilisateur ;
+  - pas d'installateur tant qu'il ne peut pas être testé.
+- **Autotest intégré** à l'exécutable (`--self-test`) et **test de fumée** de l'application réelle (fermeture par `WM_CLOSE`, relance), tous deux lancés par `scripts/build_windows.py` avant de produire l'archive.
+- **Version `1.0.0rc1`** : candidate jusqu'à la validation de la matrice e2e sur de vrais téléphones. La version est unique (paquet = `pyproject.toml`, vérifié par un test) et figure dans la ressource de version de l'exécutable.
+- **Journalisation sans console** : seul le fichier rotatif est utilisé quand `sys.stderr` vaut `None`.
+- **Intégration Windows** : icône multi-tailles générée par Qt (`packaging/make_icon.py`), `AppUserModelID` pour la barre des tâches, barre de titre sombre (DWM).
+- **`loopback_pairing_url`** ajoutée à `GET /admin/pairing` (route réservée au PC) : appairage possible en loopback seul, pour le test de fumée et un essai depuis le navigateur du PC.
+
 ## Décisions ouvertes
 
 - Pause et reprise d'un upload décidées sur le PC (distinguer la cause de la pause).
@@ -147,5 +160,7 @@ Rapport complet : [audit-phase-10.md](../security/audit-phase-10.md).
 - Vérification d'intégrité côté téléphone pour les petits fichiers (téléchargement via `fetch` et hash avant enregistrement).
 - Deux blocs en vol par envoi : le lien reste inactif pendant le traitement d'un bloc côté PC (~12 ms), soit environ 6 % sur un Wi-Fi à 20 Mio/s. Ce n'est pas utile tant que la matrice réelle ne le montre pas.
 - HTTPS local ou chiffrement applicatif (ADR-006) : à décider avant toute utilisation sur réseau partagé.
+- Installateur (Inno Setup) et signature de code (SmartScreen) avant une diffusion large (ADR-008).
+- Démarrage avec Windows et icône dans la zone de notification (optionnels au cahier des charges).
 
 Décisions closes : les appareils approuvés sont persistés et restent valables après redémarrage (phase 6) ; l'historique est conservé 30 jours, paramétrable (phase 7).

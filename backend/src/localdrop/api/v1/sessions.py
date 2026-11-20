@@ -92,5 +92,8 @@ def pairing_info(_: AdminDep, services: ServicesDep) -> PairingInfoResponse:
         for c in services.network.reachable_candidates()
     ]
     return PairingInfoResponse(
-        session_id=info.session_id, expires_at=info.expires_at, addresses=addresses
+        session_id=info.session_id,
+        expires_at=info.expires_at,
+        addresses=addresses,
+        loopback_pairing_url=pairing_url(base_url("127.0.0.1", port), info.session_id, info.secret),
     )

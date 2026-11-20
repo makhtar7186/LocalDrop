@@ -84,3 +84,6 @@ class PairingInfoResponse(BaseModel):
     session_id: str
     expires_at: datetime
     addresses: list[PairingAddress]
+    # Même lien sur 127.0.0.1 : navigateur du PC et test de fumée de l'exécutable,
+    # y compris quand le réseau local est désactivé (LOCALDROP_LAN_ENABLED=false).
+    loopback_pairing_url: str

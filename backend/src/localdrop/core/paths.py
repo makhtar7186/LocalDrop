@@ -33,6 +33,18 @@ def default_web_dist_dir() -> Path:
     return resource_root() / "apps" / "web" / "dist"
 
 
+def app_icon_path() -> Path:
+    """Icône de l'application (fenêtre, barre des tâches, exécutable)."""
+    if is_frozen():
+        return resource_root() / "localdrop.ico"
+    return resource_root() / "packaging" / "localdrop.ico"
+
+
+def migrations_dir() -> Path:
+    """Scripts Alembic, embarqués tels quels dans l'exécutable."""
+    return resource_root() / "migrations"
+
+
 def default_data_dir() -> Path:
     """Données d'exécution : base, logs, état (``%LOCALAPPDATA%\\LocalDrop``)."""
     local_app_data = os.environ.get("LOCALAPPDATA")

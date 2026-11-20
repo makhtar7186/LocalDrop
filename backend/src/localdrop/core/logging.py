@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from logging.handlers import RotatingFileHandler
 
 from localdrop.core.config import Settings
@@ -50,14 +51,17 @@ def setup_logging(settings: Settings) -> None:
     formatter = logging.Formatter(_FORMAT)
     redacting = RedactingFilter()
 
-    console = logging.StreamHandler()
     file_handler = RotatingFileHandler(
         settings.logs_dir / "localdrop.log",
         maxBytes=settings.log_max_bytes,
         backupCount=settings.log_backup_count,
         encoding="utf-8",
     )
-    for handler in (console, file_handler):
+    handlers: list[logging.Handler] = [file_handler]
+    # Exécutable fenêtré (PyInstaller --windowed) : pas de console, sys.stderr vaut None.
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    for handler in handlers:
         handler.setFormatter(formatter)
         handler.addFilter(redacting)
 
@@ -66,8 +70,8 @@ def setup_logging(settings: Settings) -> None:
         root.removeHandler(existing)
         existing.close()
     root.setLevel(settings.log_level)
-    root.addHandler(console)
-    root.addHandler(file_handler)
+    for handler in handlers:
+        root.addHandler(handler)
 
     # Les logs d'accès Uvicorn peuvent contenir des query strings : désactivés.
     logging.getLogger("uvicorn.access").disabled = True

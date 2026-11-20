@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 10 terminées (version candidate).** L'application Windows (PySide6) et l'interface mobile complète sont disponibles, auditées ([audit-phase-10.md](docs/security/audit-phase-10.md)) et testées de bout en bout sur vrais sockets et en vrai navigateur. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
+**Avancement : roadmap terminée (phases 0 à 11), version `1.0.0rc1`.** L'exécutable Windows est construit par [scripts/build_windows.py](scripts/build_windows.py) (ADR-008). L'application Windows (PySide6) et l'interface mobile complète sont disponibles, auditées ([audit-phase-10.md](docs/security/audit-phase-10.md)) et testées de bout en bout sur vrais sockets et en vrai navigateur. Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite, reprise, historique, maintenance et adaptation automatique aux changements de réseau.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -47,7 +47,13 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - [bench.py](backend/src/localdrop/bench.py) fournit `PhoneClient` (client « téléphone » en bibliothèque standard, keep-alive) et `RunningServer` (vrai serveur dans un thread), réutilisés par `tests/e2e/`.
   - FastAPI 0.165 n'aplatit plus les routeurs inclus (`app.routes` contient des `_IncludedRouter`) : faire l'inventaire des routes avec `app.openapi()["paths"]`.
 
-Prochaine étape : phase 11 (PyInstaller, documentation utilisateur), puis la matrice e2e manuelle avec de vrais téléphones ([e2e-matrix.md](docs/testing/e2e-matrix.md)). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 11 : [localdrop.spec](localdrop.spec) (PyInstaller, onedir, fenêtré, sans UPX), [packaging/](packaging/) (point d'entrée, icône et son générateur), [scripts/](scripts/) (`build_windows.py`, `smoke_test_exe.py`), guides [utilisateur](docs/guide-utilisateur.md) et [packaging](docs/packaging.md).
+  - `LocalDrop.exe --self-test [rapport.json]` ([selftest.py](apps/desktop/src/localdrop_desktop/selftest.py)) : vérifie dans l'exécutable gelé les ressources, la migration, le serveur, la page web, le WebSocket, les transferts et Qt. Une ressource ajoutée doit l'être aussi dans `datas` (spec), dans `core/paths.py` et dans l'autotest.
+  - L'exécutable n'a pas de console : `sys.stdout` et `sys.stderr` peuvent valoir `None`, ne jamais écrire dessus sans vérifier.
+  - Version unique dans `localdrop.__version__` et `pyproject.toml` (vérifiée par un test), à reporter dans `apps/web/package.json`.
+  - `GET /admin/pairing` renvoie aussi `loopback_pairing_url`, qui sert au test de fumée en loopback seul.
+
+Prochaine étape : valider sur de vrais téléphones (matrice [e2e-matrix.md](docs/testing/e2e-matrix.md), Android **et** iPhone) et sur un Windows propre, puis publier `1.0.0`. Les évolutions possibles sont dans « Décisions ouvertes » ([docs/decisions/README.md](docs/decisions/README.md)) : installateur, signature de code, HTTPS. Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md).
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -100,7 +106,7 @@ Charger le skill correspondant avant de toucher au module :
 | `localdrop-mobile-web` | React/TS/Vite/Tailwind/Zod, uploader, limites iOS et HTTP |
 | `localdrop-desktop-pyside6` | Serveur embarqué en thread, pont Qt, écrans, arrêt propre |
 | `localdrop-testing` | pytest/HTTPX/Hypothesis/pytest-qt/Vitest, matrice e2e, critères d'acceptation |
-| `localdrop-packaging-windows` | PyInstaller, chemins en mode gelé, test de fumée |
+| `localdrop-packaging-windows` | PyInstaller, chemins en mode gelé, autotest, test de fumée |
 | `localdrop-adr` | Modèle d'ADR, ADR-001 à 007, décisions ouvertes |
 
 ## Commandes
@@ -137,8 +143,11 @@ npm --prefix apps/web test                                   # un fichier : npm 
 LOCALDROP_SCREENSHOTS=captures .venv/Scripts/pytest tests/e2e/test_browser.py   # captures d'écran au format téléphone
 .venv/Scripts/python -m localdrop.bench [--size-mib 128 --repeat 3 --chunks-mib 1 4 8]   # débit par taille de bloc (loopback)
 
-# Packaging (phase 11)
-pyinstaller localdrop.spec --noconfirm --clean
+# Packaging (ADR-008, docs/packaging.md)
+.venv/Scripts/python scripts/build_windows.py [--skip-checks] [--clean-web]   # tout : web, tests, exe, autotest, fumée, zip
+.venv/Scripts/pyinstaller localdrop.spec --noconfirm --clean                  # exécutable seul -> dist/LocalDrop/
+.venv/Scripts/python scripts/smoke_test_exe.py                                # vraie application, isolée (loopback)
+start /wait dist\LocalDrop\LocalDrop.exe --self-test rapport.json            # autotest gelé (code 0 = OK)
 ```
 Les tests Python sont en `--import-mode=importlib` : **pas de `__init__.py`** dans les dossiers de tests.
 Avec PySide6 chargé, pytest peut mettre plus de 30 s à **formater** un échec (`inspect.getmodule` parcourt tous les modules), ce qui ressemble à un blocage. Utiliser `--tb=native`. Dans les tests desktop, préférer `urllib` à `httpx` : sa première initialisation (TLS) est très lente sur cette machine. Le proxy Vite redirige `/api` et `/ws` vers `127.0.0.1:8765`. Ruff ignore `.claude/` et `docs/`.

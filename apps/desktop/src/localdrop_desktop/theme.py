@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import sys
+
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 SURFACE = "#0f1115"
 RAISED = "#181b22"
@@ -59,3 +62,23 @@ def apply_dark_theme(app: QApplication) -> None:
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(MUTED))
     app.setPalette(palette)
     app.setStyleSheet(STYLESHEET)
+
+
+_DWMWA_USE_IMMERSIVE_DARK_MODE = 20  # Windows 10 20H1+ et Windows 11
+
+
+def use_dark_title_bar(window: QWidget) -> None:
+    """Barre de titre Windows sombre, assortie au thème (sans effet ailleurs)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    enabled = ctypes.c_int(1)
+    # Windows trop ancien : l'attribut est ignoré et la barre de titre reste claire.
+    with contextlib.suppress(AttributeError, OSError):
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            int(window.winId()),
+            _DWMWA_USE_IMMERSIVE_DARK_MODE,
+            ctypes.byref(enabled),
+            ctypes.sizeof(enabled),
+        )

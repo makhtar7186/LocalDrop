@@ -10,6 +10,7 @@ from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout, QWidget
 
 from localdrop_desktop.models import PLATFORM
+from localdrop_desktop.theme import use_dark_title_bar
 
 
 class ApprovalDialog(QDialog):
@@ -19,6 +20,7 @@ class ApprovalDialog(QDialog):
         super().__init__(parent)
         self.device_id = str(device.get("device_id", ""))
         self.setWindowTitle("Nouvel appareil")
+        use_dark_title_bar(self)
         self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 

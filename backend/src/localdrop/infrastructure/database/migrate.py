@@ -17,7 +17,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine
 
-from localdrop.core.paths import resource_root
+from localdrop.core.paths import migrations_dir
 from localdrop.infrastructure.database.engine import database_path
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ def alembic_config(url: str | None = None) -> Config:
     """Configuration Alembic par code. Sans URL, l'appelant fournit sa connexion via
     ``config.attributes["connection"]`` (cas de l'application)."""
     config = Config()
-    config.set_main_option("script_location", str(resource_root() / "migrations"))
+    config.set_main_option("script_location", str(migrations_dir()))
     if url is not None:
         # ConfigParser interprète « % » : les chemins Windows encodés (C%3A) doivent l'échapper.
         config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))

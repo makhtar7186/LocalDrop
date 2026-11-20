@@ -18,6 +18,9 @@ def _pairing_params(admin: TestClient) -> dict[str, str]:
     assert response.status_code == 200
     address = response.json()["addresses"][0]
     assert address["url"] == "http://192.168.1.14:8765"
+    local = response.json()["loopback_pairing_url"]
+    assert local.startswith("http://127.0.0.1:8765/#/join?")
+    assert urlsplit(local).fragment == urlsplit(address["pairing_url"]).fragment
     fragment = urlsplit(address["pairing_url"]).fragment
     query = parse_qs(fragment.split("?", 1)[1])
     return {"session_id": query["s"][0], "secret": query["k"][0]}

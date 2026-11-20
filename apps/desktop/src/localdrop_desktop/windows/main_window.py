@@ -11,6 +11,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QLabel, QMainWindow, QMessageBox, QStatusBar, QTabWidget, QWidget
 
 from localdrop_desktop.controllers.app_controller import AppController
+from localdrop_desktop.theme import use_dark_title_bar
 from localdrop_desktop.windows.approval import ApprovalDialog
 from localdrop_desktop.windows.dashboard import DashboardPage
 from localdrop_desktop.windows.history_page import HistoryPage
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self._shut_down = False
         self._error_until = 0.0
         self.setWindowTitle("LocalDrop")
+        use_dark_title_bar(self)
         self.resize(1000, 680)
 
         self.dashboard = DashboardPage(controller)
