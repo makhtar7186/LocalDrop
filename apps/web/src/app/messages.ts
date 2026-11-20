@@ -47,6 +47,15 @@ export const messages = {
   received: "Reçu ✓",
   actionFailed: "Action impossible, réessayez.",
 
+  interruptedListLabel: "Envois interrompus",
+  interruptedHint: (pct: number) =>
+    `Envoi interrompu à ${pct} %. Choisissez à nouveau le même fichier pour reprendre : seule la partie manquante sera envoyée.`,
+  resumeUpload: "Reprendre",
+  resumeUploadOf: (name: string) => `Reprendre l'envoi de ${name}`,
+  abandonUpload: "Abandonner",
+  wrongFile: (name: string) =>
+    `Ce n'est pas le même fichier. Sélectionnez « ${name} » (même nom et même taille).`,
+
   liveOn: "● En direct",
   liveReconnecting: "○ Reconnexion…",
 } as const;

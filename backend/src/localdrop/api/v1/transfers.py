@@ -1,5 +1,8 @@
 """Routes de transfert (§10.2).
 
+Routes « def » : FastAPI les exécute dans un thread (accès SQLite synchrones, ADR-004).
+Routes « async def » : uniquement celles qui lisent un flux ou délèguent explicitement.
+
 Toutes exigent un appareil approuvé (Bearer), sauf ``/download`` qui exige un ticket
 court émis à cet appareil, et ``/admin/*`` réservées au PC.
 """
@@ -58,19 +61,17 @@ async def create_transfer(
 
 
 @router.get("/transfers", response_model=list[TransferOut])
-async def list_transfers(device: DeviceDep, services: ServicesDep) -> list[TransferOut]:
+def list_transfers(device: DeviceDep, services: ServicesDep) -> list[TransferOut]:
     return [TransferOut.from_domain(t) for t in services.transfers.list_for(device)]
 
 
 @router.get("/transfers/{transfer_id}", response_model=TransferOut)
-async def get_transfer(
-    transfer_id: TransferId, device: DeviceDep, services: ServicesDep
-) -> TransferOut:
+def get_transfer(transfer_id: TransferId, device: DeviceDep, services: ServicesDep) -> TransferOut:
     return TransferOut.from_domain(services.transfers.get(device, transfer_id))
 
 
 @router.get("/transfers/{transfer_id}/chunks", response_model=ChunkListResponse)
-async def list_chunks(
+def list_chunks(
     transfer_id: TransferId, device: DeviceDep, services: ServicesDep
 ) -> ChunkListResponse:
     transfer = services.transfers.get(device, transfer_id)
@@ -138,20 +139,35 @@ async def complete_transfer(
 
 
 @router.post("/transfers/{transfer_id}/cancel", response_model=TransferOut)
-async def cancel_transfer(
+def cancel_transfer(
     transfer_id: TransferId, device: DeviceDep, services: ServicesDep
 ) -> TransferOut:
     existing = services.transfers.get(device, transfer_id)
     if existing.direction is Direction.DOWNLOAD:
         transfer = services.downloads.cancel(transfer_id, device)
     else:
-        transfer = await run_in_threadpool(services.transfers.cancel, device, transfer_id)
+        transfer = services.transfers.cancel(device, transfer_id)
     return TransferOut.from_domain(transfer)
+
+
+@router.post("/transfers/{transfer_id}/pause", response_model=TransferOut)
+def pause_transfer(
+    transfer_id: TransferId, device: DeviceDep, services: ServicesDep
+) -> TransferOut:
+    return TransferOut.from_domain(services.transfers.pause(device, transfer_id))
+
+
+@router.post("/transfers/{transfer_id}/resume", response_model=TransferOut)
+def resume_transfer(
+    transfer_id: TransferId, device: DeviceDep, services: ServicesDep
+) -> TransferOut:
+    """Reprise (FR-026) : le client relit ensuite /chunks et n'envoie que les manquants."""
+    return TransferOut.from_domain(services.transfers.resume(device, transfer_id))
 
 
 # ----------------------------------------------------------------- PC -> téléphone
 @router.post("/transfers/{transfer_id}/download-ticket", response_model=DownloadTicketResponse)
-async def download_ticket(
+def download_ticket(
     transfer_id: TransferId, device: DeviceDep, services: ServicesDep
 ) -> DownloadTicketResponse:
     """Ticket court pour un lien <a> (qui ne peut pas porter d'en-tête Authorization)."""
@@ -200,7 +216,7 @@ def _reaches_end(range_header: str | None, size: int) -> bool:
 
 
 @router.post("/transfers/{transfer_id}/confirm", response_model=TransferOut)
-async def confirm_download(
+def confirm_download(
     transfer_id: TransferId, device: DeviceDep, services: ServicesDep
 ) -> TransferOut:
     """Accusé de réception du téléphone : seul signal fiable de livraison (§6.3)."""
@@ -209,7 +225,7 @@ async def confirm_download(
 
 # ----------------------------------------------------------------- administration (PC)
 @router.get("/admin/transfers", response_model=list[AdminTransferOut])
-async def admin_list_transfers(_: AdminDep, services: ServicesDep) -> list[AdminTransferOut]:
+def admin_list_transfers(_: AdminDep, services: ServicesDep) -> list[AdminTransferOut]:
     return [AdminTransferOut.from_domain(t) for t in services.transfers.list_all()]
 
 
@@ -228,7 +244,5 @@ async def admin_offer(
 
 
 @router.post("/admin/transfers/{transfer_id}/cancel", response_model=AdminTransferOut)
-async def admin_cancel(
-    transfer_id: TransferId, _: AdminDep, services: ServicesDep
-) -> AdminTransferOut:
+def admin_cancel(transfer_id: TransferId, _: AdminDep, services: ServicesDep) -> AdminTransferOut:
     return AdminTransferOut.from_domain(services.downloads.cancel(transfer_id))

@@ -23,7 +23,7 @@ router = APIRouter(tags=["sessions"])
 
 # ----------------------------------------------------------------- appareil mobile
 @router.post("/sessions/join", status_code=status.HTTP_201_CREATED, response_model=JoinResponse)
-async def join(payload: JoinRequest, request: Request, services: ServicesDep) -> JoinResponse:
+def join(payload: JoinRequest, request: Request, services: ServicesDep) -> JoinResponse:
     """Demande d'appairage (route publique, limitée en fréquence)."""
     result = services.pairing.join(
         session_id=payload.session_id,
@@ -40,7 +40,7 @@ async def join(payload: JoinRequest, request: Request, services: ServicesDep) ->
 
 
 @router.get("/sessions/status", response_model=SessionStatusResponse)
-async def session_status(request: Request, services: ServicesDep) -> SessionStatusResponse:
+def session_status(request: Request, services: ServicesDep) -> SessionStatusResponse:
     """État de l'appareil courant (attente, connecté). 401/403 si révoqué ou refusé."""
     device = services.pairing.device_for_token(device_token(request))
     session = services.pairing.current_session()
@@ -55,7 +55,7 @@ async def session_status(request: Request, services: ServicesDep) -> SessionStat
 
 # ----------------------------------------------------------------- administration (PC)
 @router.post("/sessions/approve", response_model=DeviceOut)
-async def approve(payload: ApproveRequest, _: AdminDep, services: ServicesDep) -> DeviceOut:
+def approve(payload: ApproveRequest, _: AdminDep, services: ServicesDep) -> DeviceOut:
     pairing = services.pairing
     device = (
         pairing.approve(payload.device_id) if payload.approve else pairing.reject(payload.device_id)
@@ -64,7 +64,7 @@ async def approve(payload: ApproveRequest, _: AdminDep, services: ServicesDep) -
 
 
 @router.post("/sessions/revoke", response_model=RevokeResponse)
-async def revoke(payload: RevokeRequest, _: AdminDep, services: ServicesDep) -> RevokeResponse:
+def revoke(payload: RevokeRequest, _: AdminDep, services: ServicesDep) -> RevokeResponse:
     if payload.device_id is None:
         session = services.pairing.close_session()
         return RevokeResponse(revoked="session", session_id=session.id)
@@ -73,12 +73,12 @@ async def revoke(payload: RevokeRequest, _: AdminDep, services: ServicesDep) -> 
 
 
 @router.get("/devices", response_model=list[DeviceOut])
-async def list_devices(_: AdminDep, services: ServicesDep) -> list[DeviceOut]:
+def list_devices(_: AdminDep, services: ServicesDep) -> list[DeviceOut]:
     return [DeviceOut.from_domain(d) for d in services.pairing.list_devices()]
 
 
 @router.get("/admin/pairing", response_model=PairingInfoResponse)
-async def pairing_info(_: AdminDep, services: ServicesDep) -> PairingInfoResponse:
+def pairing_info(_: AdminDep, services: ServicesDep) -> PairingInfoResponse:
     """URL(s) du QR Code courant, une par adresse joignable (§8.1)."""
     info = services.pairing.current_pairing()
     port = services.settings.port

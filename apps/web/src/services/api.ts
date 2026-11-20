@@ -108,6 +108,9 @@ export interface TransferApi {
   receivedChunks(token: string, transferId: string): Promise<number[]>;
   complete(token: string, transferId: string, sha256: string): Promise<Transfer>;
   cancel(token: string, transferId: string): Promise<Transfer>;
+  /** Transferts de l'appareil (pour proposer la reprise des envois interrompus). */
+  list(token: string): Promise<Transfer[]>;
+  resume(token: string, transferId: string): Promise<Transfer>;
 }
 
 const enc = encodeURIComponent;
@@ -140,6 +143,9 @@ export const transferApi: TransferApi = {
     }),
   cancel: (token, transferId) =>
     request(transferSchema, `/transfers/${enc(transferId)}/cancel`, { method: "POST", token }),
+  list: (token) => request(transferSchema.array(), "/transfers", { token }),
+  resume: (token, transferId) =>
+    request(transferSchema, `/transfers/${enc(transferId)}/resume`, { method: "POST", token }),
 };
 
 export interface ReceiveApi {

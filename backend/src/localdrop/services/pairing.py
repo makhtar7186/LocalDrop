@@ -91,6 +91,18 @@ class PairingService:
         self._events.publish("session.started", {"session_id": session.id})
         return session
 
+    def resume_or_start_session(self) -> Session:
+        """Au démarrage : reprend la session active (appareils approuvés conservés) ou en
+        crée une. Le secret d'appairage en clair n'est jamais persisté : nouveau QR Code."""
+        with self._lock:
+            session = self._repo.find_active_session(self._clock())
+            if session is None:
+                return self.start_session()
+            self._session_id = session.id
+            session = self._rotate_pairing_secret_locked(session)
+        logger.info("Session %s reprise", session.id)
+        return session
+
     def current_session(self) -> Session:
         with self._lock:
             session = self._repo.get_session(self._session_id) if self._session_id else None

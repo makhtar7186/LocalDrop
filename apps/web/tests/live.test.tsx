@@ -72,7 +72,8 @@ it("FR-011 : l'approbation arrive en temps réel, sans attendre le rafraîchisse
     />,
   );
   await waitFor(() => expect(status()).toHaveAttribute("data-state", "pending"));
-  expect(realtime.token).toBe("tok"); // un appareil en attente écoute déjà
+  // Un appareil en attente écoute déjà (connexion faite dans un effet, après le rendu).
+  await waitFor(() => expect(realtime.token).toBe("tok"));
 
   realtime.emit("device.connected", { device_id: "dev1", status: "connected" });
   await waitFor(() => expect(status()).toHaveAttribute("data-state", "connected"));

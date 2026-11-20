@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     join_window_seconds: int = Field(default=60, ge=1)
     ws_auth_timeout_seconds: float = Field(default=5.0, gt=0)  # premier message WebSocket
 
+    # Persistance (ADR-004) : "memory" réservé aux tests rapides
+    persistence: Literal["sqlite", "memory"] = "sqlite"
+
     # Journalisation
     log_level: LogLevel = "INFO"
     log_max_bytes: int = Field(default=5 * MIB, ge=64 * 1024)

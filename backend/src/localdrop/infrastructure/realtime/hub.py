@@ -153,7 +153,8 @@ class RealtimeHub:
             return
 
         connection = _Connection(websocket, device_id, asyncio.get_running_loop())
-        self._register(connection)
+        if self._register(connection) and device_id is not None:
+            await asyncio.to_thread(self._services.pairing.set_presence, device_id, online=True)
         try:
             connection.queue.put_nowait(
                 {"type": "auth.ok", "data": {"device_id": device_id, "role": _role(device_id)}}
@@ -166,7 +167,11 @@ class RealtimeHub:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         finally:
-            self._unregister(connection)
+            if self._unregister(connection) and device_id is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(
+                        self._services.pairing.set_presence, device_id, online=False
+                    )
             if websocket.application_state is WebSocketState.CONNECTED:
                 with contextlib.suppress(Exception):
                     await websocket.close(code=CLOSE_GOING_AWAY)
@@ -195,7 +200,7 @@ class RealtimeHub:
             raise _AuthFailedError(CLOSE_UNAUTHORIZED)
         try:
             # Les appareils en attente sont admis : ils apprennent ainsi leur approbation.
-            device = self._services.pairing.device_for_token(token)
+            device = await asyncio.to_thread(self._services.pairing.device_for_token, token)
         except ForbiddenError as exc:
             raise _AuthFailedError(CLOSE_FORBIDDEN) from exc
         except LocalDropError as exc:
@@ -222,29 +227,30 @@ class RealtimeHub:
                 self._enqueue(connection, {"type": "pong"})
 
     # ------------------------------------------------------------------ présence
-    def _register(self, connection: _Connection) -> None:
+    def _register(self, connection: _Connection) -> bool:
+        """Enregistre la connexion. True si c'est le premier socket de l'appareil."""
         with self._lock:
             self._connections.add(connection)
             device_id = connection.device_id
             if device_id is None:
-                return
+                return False
             count = self._presence.get(device_id, 0)
             self._presence[device_id] = count + 1
-        if count == 0:
-            self._services.pairing.set_presence(device_id, online=True)
+            return count == 0
 
-    def _unregister(self, connection: _Connection) -> None:
+    def _unregister(self, connection: _Connection) -> bool:
+        """Retire la connexion. True si c'était le dernier socket de l'appareil."""
         with self._lock:
             self._connections.discard(connection)
             device_id = connection.device_id
             if device_id is None:
-                return
+                return False
             remaining = self._presence.get(device_id, 1) - 1
             if remaining > 0:
                 self._presence[device_id] = remaining
-                return
+                return False
             self._presence.pop(device_id, None)
-        self._services.pairing.set_presence(device_id, online=False)
+            return True
 
 
 class _AuthFailedError(Exception):

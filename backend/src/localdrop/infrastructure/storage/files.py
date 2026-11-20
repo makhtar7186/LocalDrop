@@ -112,6 +112,15 @@ class FileStorage:
                 digest.update(block)
         return digest.hexdigest()
 
+    def temp_exists(self, transfer_id: str) -> bool:
+        return self.temp_path(transfer_id).is_file()
+
+    def list_temp_ids(self) -> list[str]:
+        """Identifiants des fichiers temporaires présents (réconciliation au démarrage)."""
+        if not self.temp_dir.is_dir():
+            return []
+        return sorted(p.stem for p in self.temp_dir.glob("*.part") if _TEMP_ID.fullmatch(p.stem))
+
     def delete_temp(self, transfer_id: str) -> None:
         with contextlib.suppress(FileNotFoundError):
             self.temp_path(transfer_id).unlink()

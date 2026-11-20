@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import threading
+from datetime import datetime
 
 from localdrop.domain.devices.models import Device
 from localdrop.domain.sessions.models import Session
@@ -27,6 +28,11 @@ class InMemorySessionRepository:
         with self._lock:
             session = self._sessions.get(session_id)
             return copy.copy(session) if session else None
+
+    def find_active_session(self, now: datetime) -> Session | None:
+        with self._lock:
+            active = [s for s in self._sessions.values() if s.is_active(now)]
+        return copy.copy(max(active, key=lambda s: s.created_at)) if active else None
 
     def save_device(self, device: Device) -> None:
         with self._lock:

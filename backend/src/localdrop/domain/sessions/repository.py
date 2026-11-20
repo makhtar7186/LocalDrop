@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from localdrop.domain.devices.models import Device
@@ -12,6 +13,10 @@ class SessionRepository(Protocol):
     def save_session(self, session: Session) -> None: ...
 
     def get_session(self, session_id: str) -> Session | None: ...
+
+    def find_active_session(self, now: datetime) -> Session | None:
+        """Session active la plus récente (reprise après redémarrage du serveur)."""
+        ...
 
     def save_device(self, device: Device) -> None: ...
 

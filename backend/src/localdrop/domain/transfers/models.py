@@ -83,6 +83,7 @@ class Transfer:
     expires_at: datetime
     received_bytes: int = 0
     sha256: str | None = None  # hash global vérifié
+    expected_sha256: str | None = None  # hash annoncé par le client à la finalisation
     final_path: str | None = None
     error_code: str | None = None
     # Sortants (PC -> téléphone) : fichier source non copié, contrôlé à chaque service.

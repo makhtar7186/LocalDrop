@@ -11,6 +11,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from localdrop.core.errors import ConflictError, LocalDropError, NotFoundError
@@ -34,6 +35,18 @@ from localdrop.services.pairing import Clock, utc_now
 logger = logging.getLogger(__name__)
 
 _PROGRESS_MIN_INTERVAL = 0.25  # ~4 événements de progression par seconde et par transfert
+
+
+@dataclass
+class ReconcileReport:
+    paused: list[str] = field(default_factory=list)
+    reverified: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    orphans_deleted: list[str] = field(default_factory=list)
+
+    @property
+    def has_changes(self) -> bool:
+        return bool(self.paused or self.reverified or self.failed or self.orphans_deleted)
 
 
 class FileTooLargeError(LocalDropError):
@@ -139,7 +152,7 @@ class TransferService:
             transfer = self._own_upload(device, transfer_id)
             expected_size = transfer.expected_chunk_size(index)
 
-            existing = self._repo.get_chunks(transfer_id).get(index)
+            existing = self._repo.get_chunk(transfer_id, index)
             actual = hashlib.sha256(data).hexdigest()
             if existing is not None:
                 # Idempotence (§9.3) : même contenu = déjà validé ; contenu différent = refus.
@@ -153,6 +166,11 @@ class TransferService:
 
             if transfer.status is TransferStatus.WAITING:
                 transfer.transition(TransferStatus.TRANSFERRING, self._clock())
+            elif transfer.status is TransferStatus.PAUSED:
+                raise ConflictError(
+                    "Transfert en pause : reprenez-le avant d'envoyer des blocs",
+                    code="TRANSFER_PAUSED",
+                )
             elif transfer.status is not TransferStatus.TRANSFERRING:
                 raise ConflictError(
                     "Le transfert n'accepte pas de bloc dans cet état",
@@ -177,8 +195,7 @@ class TransferService:
             self._storage.write_chunk(transfer_id, transfer.chunk_offset(index), data)
             now = self._clock()
             self._repo.add_chunk(transfer_id, ChunkRecord(index, len(data), actual, now))
-            chunks = self._repo.get_chunks(transfer_id)
-            transfer.received_bytes = sum(c.size for c in chunks.values())
+            transfer.received_bytes = self._repo.received_bytes(transfer_id)
             transfer.updated_at = now
             self._repo.save(transfer)
 
@@ -218,7 +235,10 @@ class TransferService:
             )
 
         # Update conditionnel : un seul appel concurrent peut passer en vérification.
+        # Le hash annoncé est mémorisé : une vérification interrompue par un arrêt
+        # brutal est rejouée au démarrage suivant (reconcile).
         transfer.transition(TransferStatus.VERIFYING, now)
+        transfer.expected_sha256 = sha256
         if not self._repo.save(transfer, expected_status=TransferStatus.TRANSFERRING):
             raise _already_finalizing()
         return self._verify_and_publish(transfer, sha256)
@@ -268,6 +288,96 @@ class TransferService:
         logger.info("Transfert %s annulé", transfer_id)
         self._events.publish("transfer.cancelled", transfer_event(transfer))
         return transfer
+
+    # ------------------------------------------------------------------ pause / reprise
+    def pause(self, device: Device, transfer_id: str) -> Transfer:
+        with self._lock_for(transfer_id):
+            transfer = self._own_upload(device, transfer_id)
+            if transfer.status is TransferStatus.PAUSED:
+                return transfer
+            transfer.transition(TransferStatus.PAUSED, self._clock())
+            if not self._repo.save(transfer, expected_status=TransferStatus.TRANSFERRING):
+                raise _already_finalizing()
+        self._events.publish("transfer.paused", transfer_event(transfer))
+        return transfer
+
+    def resume(self, device: Device, transfer_id: str) -> Transfer:
+        """Reprise (FR-026), idempotente : le client envoie ensuite les blocs manquants."""
+        with self._lock_for(transfer_id):
+            transfer = self._own_upload(device, transfer_id)
+            if transfer.status in (TransferStatus.WAITING, TransferStatus.TRANSFERRING):
+                return transfer
+            transfer.transition(TransferStatus.TRANSFERRING, self._clock())
+            if not self._repo.save(transfer, expected_status=TransferStatus.PAUSED):
+                raise _already_finalizing()
+        self._events.publish("transfer.progress", transfer_event(transfer))
+        return transfer
+
+    # ------------------------------------------------------------------ démarrage
+    def reconcile(self) -> ReconcileReport:
+        """Remet la base et les fichiers temporaires en cohérence après un arrêt (§5.2).
+
+        - upload actif sans fichier temporaire -> failed (TEMP_FILE_MISSING) ;
+        - upload qui recevait des blocs -> paused (le client le reprend) ;
+        - vérification interrompue -> rejouée avec le hash mémorisé ;
+        - fichier temporaire sans upload actif -> supprimé.
+        """
+        report = ReconcileReport()
+        active_uploads: set[str] = set()
+        for transfer in self._repo.list_all():
+            if transfer.direction is not Direction.UPLOAD or transfer.is_terminal:
+                continue
+            with self._lock_for(transfer.id):
+                if not self._storage.temp_exists(transfer.id):
+                    self._fail(transfer, "TEMP_FILE_MISSING")
+                    report.failed.append(transfer.id)
+                    continue
+                active_uploads.add(transfer.id)
+                if transfer.status is TransferStatus.TRANSFERRING:
+                    transfer.received_bytes = self._repo.received_bytes(transfer.id)
+                    transfer.transition(TransferStatus.PAUSED, self._clock())
+                    self._repo.save(transfer, expected_status=TransferStatus.TRANSFERRING)
+                    report.paused.append(transfer.id)
+                elif transfer.status is TransferStatus.VERIFYING:
+                    if transfer.expected_sha256:
+                        self._verify_and_publish(transfer, transfer.expected_sha256)
+                    else:
+                        self._fail(transfer, "VERIFICATION_INTERRUPTED")
+                    report.reverified.append(transfer.id)
+
+        for orphan in self._storage.list_temp_ids():
+            if orphan not in active_uploads:
+                self._storage.delete_temp(orphan)
+                report.orphans_deleted.append(orphan)
+
+        if report.has_changes:
+            logger.info(
+                "Réconciliation : %d en pause, %d revérifiés, %d en échec, %d orphelins supprimés",
+                len(report.paused),
+                len(report.reverified),
+                len(report.failed),
+                len(report.orphans_deleted),
+            )
+        return report
+
+    def _fail(self, transfer: Transfer, error_code: str) -> None:
+        """Échec explicite et traçable, en respectant la machine à états (§8.3)."""
+        previous = transfer.status
+        now = self._clock()
+        # « failed » n'est atteignable que depuis « verifying » : on suit le chemin légal.
+        path = {
+            TransferStatus.CREATED: [TransferStatus.WAITING, TransferStatus.TRANSFERRING],
+            TransferStatus.WAITING: [TransferStatus.TRANSFERRING],
+            TransferStatus.PAUSED: [TransferStatus.TRANSFERRING],
+        }.get(previous, [])
+        for step in [*path, TransferStatus.VERIFYING]:
+            if transfer.status is not TransferStatus.VERIFYING:
+                transfer.transition(step, now)
+        transfer.transition(TransferStatus.FAILED, now)
+        transfer.error_code = error_code
+        self._repo.save(transfer, expected_status=previous)
+        logger.warning("Transfert %s en échec : %s", transfer.id, error_code)
+        self._events.publish("transfer.failed", transfer_event(transfer))
 
     def has_active_transfers(self) -> bool:
         return any(t.status in ACTIVE_STATUSES for t in self._repo.list_all())

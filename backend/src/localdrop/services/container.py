@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import socket
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from localdrop.core.config import Settings
 from localdrop.domain.sessions.rate_limit import SlidingWindowRateLimiter
+from localdrop.domain.sessions.repository import SessionRepository
 from localdrop.domain.sessions.tokens import generate_secret
+from localdrop.domain.transfers.repository import TransferRepository
 from localdrop.infrastructure.database.memory import InMemorySessionRepository
 from localdrop.infrastructure.database.memory_transfers import InMemoryTransferRepository
 from localdrop.infrastructure.network.interfaces import (
@@ -20,7 +23,7 @@ from localdrop.services.downloads import DownloadService
 from localdrop.services.events import EventBus
 from localdrop.services.network_monitor import AddressProvider, NetworkMonitor
 from localdrop.services.pairing import PairingService
-from localdrop.services.transfers import TransferService
+from localdrop.services.transfers import ReconcileReport, TransferService
 
 
 @dataclass
@@ -35,6 +38,37 @@ class AppServices:
     # Jeton des routes d'administration HTTP (outil dev / desktop hors processus).
     admin_token: str
     server_name: str
+    reconcile_report: ReconcileReport = field(default_factory=ReconcileReport)
+    _closers: list[Callable[[], None]] = field(default_factory=list, repr=False)
+
+    def close(self) -> None:
+        """Libère les ressources (moteur SQLite). À appeler à l'arrêt du processus."""
+        while self._closers:
+            self._closers.pop()()
+
+
+def _repositories(
+    settings: Settings,
+) -> tuple[SessionRepository, TransferRepository, list[Callable[[], None]]]:
+    if settings.persistence == "memory":
+        return InMemorySessionRepository(), InMemoryTransferRepository(), []
+
+    from localdrop.infrastructure.database.engine import (
+        database_url,
+        make_engine,
+        make_session_factory,
+    )
+    from localdrop.infrastructure.database.migrate import upgrade_database
+    from localdrop.infrastructure.database.sql_repositories import (
+        SqlSessionRepository,
+        SqlTransferRepository,
+    )
+
+    settings.database_dir.mkdir(parents=True, exist_ok=True)
+    engine = make_engine(database_url(settings.database_dir))
+    upgrade_database(engine, settings.database_dir)
+    sessions = make_session_factory(engine)
+    return SqlSessionRepository(sessions), SqlTransferRepository(sessions), [engine.dispose]
 
 
 def build_services(
@@ -46,9 +80,10 @@ def build_services(
     events = EventBus()
     excluded = settings.excluded_interface_patterns or DEFAULT_EXCLUDED_PATTERNS
     provider = address_provider or (lambda: detect_candidates(excluded))
+    session_repository, transfer_repository, closers = _repositories(settings)
 
     pairing = PairingService(
-        InMemorySessionRepository(),
+        session_repository,
         events,
         session_ttl=timedelta(hours=settings.session_ttl_hours),
         pairing_ttl=timedelta(seconds=settings.pairing_secret_ttl_seconds),
@@ -56,13 +91,13 @@ def build_services(
             settings.join_max_attempts, settings.join_window_seconds
         ),
     )
-    pairing.start_session()
+    # Les appareils approuvés restent valables après un redémarrage du serveur.
+    pairing.resume_or_start_session()
 
     network = NetworkMonitor(provider, events, bound_ips)
     network.refresh()
 
     storage = FileStorage(settings.receive_dir, free_space_margin=settings.free_space_margin)
-    transfer_repository = InMemoryTransferRepository()
     transfers = TransferService(
         transfer_repository,
         storage,
@@ -79,6 +114,7 @@ def build_services(
         retention=timedelta(hours=settings.temp_retention_hours),
         ticket_ttl=timedelta(seconds=settings.download_ticket_ttl_seconds),
     )
+    report = transfers.reconcile()
 
     return AppServices(
         settings=settings,
@@ -90,4 +126,6 @@ def build_services(
         downloads=downloads,
         admin_token=generate_secret(),
         server_name=socket.gethostname(),
+        reconcile_report=report,
+        _closers=closers,
     )

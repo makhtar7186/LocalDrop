@@ -53,6 +53,24 @@ Format et règles : skill `.claude/skills/localdrop-adr`. Un ADR remplacé n'est
 - **Présence (FR-012)** : le premier socket ouvert passe l'appareil en `connected`, la fermeture du dernier le passe en `disconnected`. Toute requête authentifiée le rebascule en `connected`.
 - **Client** : le WebSocket n'est **jamais** la source de vérité. Chaque événement pertinent et chaque (re)connexion déclenchent une relecture REST, et l'actualisation périodique reste en filet de sécurité (30 s connecté, 15 s réception). Il n'y a pas de reconnexion après 4401/4403. La reconnexion est immédiate au retour au premier plan (`visibilitychange`, iOS).
 
+## Décisions prises en phase 6 (persistance et reprise)
+
+- **SQLite dès la phase 6** (ADR-004), dans `%LOCALAPPDATA%\LocalDrop\database\localdrop.db`, pour les tables `sessions`, `devices`, `transfers` et `transfer_chunks` (§11).
+  - Migration `0001` écrite à la main, avec les `CHECK` et les index. Un test vérifie qu'elle est identique aux modèles ORM, et `alembic check` reste propre.
+  - Pragmas : WAL, `foreign_keys`, `synchronous=FULL`.
+  - Au démarrage, la migration est appliquée par code, précédée d'une sauvegarde par l'API backup de SQLite (5 conservées).
+- **Appareils persistés** : un téléphone approuvé le reste après un redémarrage du PC, tant que la session (12 h) est valide. Le secret d'appairage n'est jamais stocké : chaque démarrage affiche un nouveau QR Code dans la **même** session. Cela tranche la décision ouverte sur la persistance des appareils.
+- **Réconciliation au démarrage** :
+  - un upload qui recevait des blocs passe en `paused` ;
+  - un upload sans fichier temporaire passe en `failed` (`TEMP_FILE_MISSING`), en suivant le chemin légal de la machine à états ;
+  - une vérification interrompue est **rejouée**, grâce au hash annoncé mémorisé (`expected_sha256`) ;
+  - les `.part` orphelins sont supprimés ;
+  - un fichier final n'est jamais touché.
+- **API** : `POST /transfers/{id}/pause` et `/resume` (idempotent). Un bloc envoyé sur un transfert en pause reçoit 409 `TRANSFER_PAUSED`, et le client reprend alors tout seul.
+- **Accès base hors de la boucle asyncio** : les routes qui touchent SQLite sont des `def`, exécutées par FastAPI dans un thread. Le hub WebSocket passe par `asyncio.to_thread`.
+- **Tests** : `persistence="memory"` par défaut pour la vitesse. Le contrat des dépôts est testé sur les deux implémentations, et des tests dédiés couvrent SQLite, la migration et le redémarrage.
+- **Client, reprise après rechargement** : les envois en cours sont mémorisés dans `localStorage`. Une section « Envois interrompus » permet de resélectionner le fichier, qui est accepté sur **nom et taille** : le sélecteur iOS peut changer la date de modification. Le SHA-256 global vérifié par le serveur empêche de publier un contenu différent. Seuls les blocs manquants sont renvoyés, mais tout le fichier est relu pour le hash.
+
 ## Décisions ouvertes
 
 - Progression octet par octet des téléchargements sortants (actuellement : démarré, puis servi en entier).

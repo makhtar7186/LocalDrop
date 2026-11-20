@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Architecture.md](LocalDrop_Cahier_des_charges_Architecture.md). Il contient les exigences FR-xxx, l'API (§10), le modèle de données (§11), la sécurité (§12), la roadmap (§18) et le MVP (§20). Le consulter plutôt que supposer.
 
-**Avancement : phases 0 à 5 terminées.** Les transferts fonctionnent dans les deux sens, avec le temps réel.
+**Avancement : phases 0 à 6 terminées.** Les transferts fonctionnent dans les deux sens, en temps réel, avec persistance SQLite et reprise après redémarrage ou rechargement.
 - Phases 0 et 1 : socle, ADR-001 à 007, `create_app`, `Settings`, logs avec masquage des secrets, `/health`, format d'erreur unique, en-têtes de sécurité, UI statique.
 - Phase 2 : détection réseau, QR Code dans le terminal, sessions, appairage, approbation et révocation via `devtools`, page mobile d'appairage.
 - Phase 3 : protocole par blocs complet. On a `POST /transfers`, `PUT …/chunks/{i}` avec `X-Chunk-SHA256` et `POST …/complete` avec le SHA-256 global, ainsi que `GET …/chunks` et `cancel`. Côté mobile : envoi multi-fichiers, 2 simultanés, progression confirmée par le serveur.
@@ -20,7 +20,12 @@ La source de vérité est le cahier des charges [LocalDrop_Cahier_des_charges_Ar
   - Côté web : [realtime.ts](apps/web/src/services/realtime.ts) gère la connexion, et [useRealtimeNudge](apps/web/src/hooks/useRealtimeNudge.ts) déclenche une relecture REST, jamais d'état dérivé du WebSocket seul.
   - Tests : injecter `FakeRealtime` ([tests/fakes.ts](apps/web/tests/fakes.ts)) dans tout rendu d'`<App>`.
 
-Prochaine étape : phase 6 (blocs, manifeste, reprise : persistance et reprise après redémarrage ou rechargement). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
+- Phase 6 : SQLite et Alembic ([infrastructure/database/](backend/src/localdrop/infrastructure/database/), [migrations/](migrations/)).
+  - Sessions, appareils et transferts sont persistés. `TransferService.reconcile()` s'exécute au démarrage (`AppServices.reconcile_report`).
+  - `pause`/`resume`, avec 409 `TRANSFER_PAUSED`.
+  - Côté web : [pendingUploads.ts](apps/web/src/services/pendingUploads.ts) mémorise les envois, et `uploadFile(file, deps, { resume })` les reprend.
+
+Prochaine étape : phase 7 (historique et nettoyage : tâche de maintenance, expiration des temporaires, FR-034/FR-035). Les décisions par phase sont dans [docs/decisions/README.md](docs/decisions/README.md). Les commandes marquées *(phase N)* n'existent pas encore.
 
 Transferts :
 - [services/transfers.py](backend/src/localdrop/services/transfers.py) : service **synchrone**, appelé depuis les routes via `run_in_threadpool`. Un verrou par transfert protège les blocs et `complete`.
@@ -38,7 +43,11 @@ Points d'ancrage du backend :
 - [api/middleware.py](backend/src/localdrop/api/middleware.py) : `PrivateNetworkOnlyMiddleware` refuse les clients hors réseau privé.
 - [core/config.py](backend/src/localdrop/core/config.py) : tous les paramètres, surchargeables par `LOCALDROP_*`. [core/paths.py](backend/src/localdrop/core/paths.py) est le seul endroit qui calcule des chemins.
 - [api/errors.py](backend/src/localdrop/api/errors.py) : mapping des erreurs. Lever des sous-classes de `LocalDropError` ([core/errors.py](backend/src/localdrop/core/errors.py)) avec un `code` explicite, jamais `HTTPException` dans les services.
-- Sessions et appareils : dépôt **en mémoire** derrière le port `SessionRepository`. SQLite le remplacera en phase 6/7.
+- Persistance derrière les ports `SessionRepository` / `TransferRepository`, avec deux implémentations : mémoire et SQLite (`Settings.persistence`).
+  - Tout nouveau champ va dans **trois** endroits : domaine, `models.py` et une **nouvelle migration**. Le test `test_migrated_schema_matches_orm_models` échoue sinon.
+  - Les changements d'état concurrents passent par `save(..., expected_status=...)` (UPDATE conditionnel).
+  - Les routes qui touchent la base sont des `def` (thread), jamais des `async def` qui appellent un service directement.
+- `build_services()` ouvre un moteur SQLite : appeler `services.close()` à l'arrêt (déjà fait par `__main__` et les fixtures).
 
 Tests :
 - Fixtures partagées dans [tests/conftest.py](tests/conftest.py) :
@@ -46,6 +55,7 @@ Tests :
   - `admin` = loopback + jeton ;
   - `make_client(ip, headers)` ;
   - adresse réseau simulée `192.168.1.14`.
+- Ces fixtures utilisent `persistence="memory"`. Pour SQLite et les redémarrages, voir [test_persistence.py](tests/integration/test_persistence.py) et [test_resume_api.py](tests/integration/test_resume_api.py).
 - Le client par défaut de `TestClient` (`testclient`) est **refusé** par le middleware : toujours passer `client=(ip, port)`.
 - [test_architecture.py](backend/tests/unit/test_architecture.py) échoue si `domain/` importe un framework ou l'infrastructure.
 
@@ -90,7 +100,8 @@ py -3.12 -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt
 .venv/Scripts/uvicorn localdrop.main:create_app --factory --reload --host 127.0.0.1 --port 8765   # dev avec rechargement
 # Variables utiles : LOCALDROP_PORT, LOCALDROP_DATA_DIR, LOCALDROP_DEBUG=true (active /api/docs)
 .venv/Scripts/python -m localdrop_desktop                    # (phase 8)
-.venv/Scripts/alembic revision --autogenerate -m "..."       # (phase 6/7)
+.venv/Scripts/alembic revision --autogenerate -m "..."       # base : LOCALDROP_DATA_DIR ; relire le script (CHECK, index)
+.venv/Scripts/alembic upgrade head && .venv/Scripts/alembic check   # « No new upgrade operations » attendu
 
 # Web mobile (apps/web : Vite 8, React 19, TS 6, Tailwind 4, Zod 4, Vitest 5, ESLint 10 flat config)
 npm --prefix apps/web run dev | build | lint | typecheck

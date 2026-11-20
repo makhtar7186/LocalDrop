@@ -118,6 +118,7 @@ def main() -> None:
     try:
         uvicorn.Server(config).run(sockets=sockets)
     finally:
+        services.close()
         settings.admin_token_file.unlink(missing_ok=True)
         for sock in sockets:
             sock.close()

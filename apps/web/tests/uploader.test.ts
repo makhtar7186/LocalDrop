@@ -63,6 +63,14 @@ class FakeServer implements TransferApi {
   });
 
   cancel = vi.fn(() => Promise.resolve(this.transfer("cancelled")));
+
+  list = vi.fn(() => Promise.resolve([this.transfer()]));
+
+  paused = false;
+  resume = vi.fn(() => {
+    this.paused = false;
+    return Promise.resolve(this.transfer("transferring"));
+  });
 }
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -183,5 +191,97 @@ describe("UploadQueue", () => {
     await vi.waitFor(() => expect(releases).toHaveLength(2));
     releases.forEach((release) => release());
     expect(maxRunning).toBe(2);
+  });
+});
+
+describe("reprise (FR-026)", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("n'envoie que les blocs manquants mais hache tout le fichier", async () => {
+    const server = new FakeServer();
+    const content = "abcdefghij"; // blocs : abcd | efgh | ij
+    server.size = content.length;
+    server.chunks.set(0, bytes("abcd"));
+    server.chunks.set(2, bytes("ij"));
+    const existing: Transfer = {
+      id: "t1",
+      direction: "upload",
+      filename: "f",
+      safe_filename: "f",
+      size: 10,
+      chunk_size: CHUNK,
+      total_chunks: 3,
+      status: "paused",
+      received_bytes: 6,
+      sha256: null,
+      error_code: null,
+      fully_served: false,
+    };
+    const updates: UploadProgress[] = [];
+
+    const done = await uploadFile(
+      fileOf(content),
+      { api: server, token: "t", onProgress: (p) => updates.push(p), sleep: noSleep },
+      { resume: existing },
+    );
+
+    expect(server.create).not.toHaveBeenCalled();
+    expect(server.resume).toHaveBeenCalledTimes(1); // le transfert était en pause
+    expect(server.putChunk.mock.calls.map((c) => c[2])).toEqual([1]);
+    expect(server.completedWith).toBe(await sha256(bytes(content)));
+    expect(done.status).toBe("completed");
+    expect(updates[0]?.confirmedBytes).toBe(6); // la progression repart de l'acquis
+  });
+
+  it("reprend tout seul quand le PC a redémarré (TRANSFER_PAUSED)", async () => {
+    const server = new FakeServer();
+    const original = server.putChunk.getMockImplementation();
+    if (!original) throw new Error("implémentation manquante");
+    let calls = 0;
+    server.putChunk.mockImplementation(async (...args) => {
+      calls += 1;
+      if (calls === 2) throw new ApiError(409, "TRANSFER_PAUSED", "pause");
+      return original(...args);
+    });
+
+    const done = await uploadFile(fileOf("12345678"), {
+      api: server,
+      token: "t",
+      onProgress: () => {},
+      sleep: noSleep,
+    });
+    expect(done.status).toBe("completed");
+    expect(server.resume).toHaveBeenCalledTimes(1);
+    expect(server.putChunk.mock.calls.map((c) => c[2])).toEqual([0, 1, 1]);
+  });
+
+  it("mémorise l'envoi en cours puis l'oublie une fois terminé", async () => {
+    const server = new FakeServer();
+    let remembered: string | null = null;
+    await uploadFile(fileOf("abcd", "notes.txt"), {
+      api: server,
+      token: "t",
+      onProgress: (p) => {
+        if (p.status === "uploading") remembered = window.localStorage.getItem("localdrop.uploads");
+      },
+      sleep: noSleep,
+    });
+    expect(remembered).toContain("notes.txt");
+    expect(window.localStorage.getItem("localdrop.uploads")).toBe("{}");
+  });
+
+  it("garde l'envoi reprenable après une coupure réseau définitive", async () => {
+    const server = new FakeServer();
+    server.failNextPuts = 10;
+    await expect(
+      uploadFile(fileOf("abcd", "long.mp4"), {
+        api: server,
+        token: "t",
+        onProgress: () => {},
+        retryDelaysMs: [1],
+        sleep: noSleep,
+      }),
+    ).rejects.toBeInstanceOf(NetworkError);
+    expect(window.localStorage.getItem("localdrop.uploads")).toContain("long.mp4");
   });
 });

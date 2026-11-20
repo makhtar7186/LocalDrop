@@ -56,6 +56,8 @@ function fakeTransfers(): TransferApi {
       Promise.resolve(transfer(id, sizes.get(id) ?? 0, "completed")),
     ),
     cancel: vi.fn((_t: string, id: string) => Promise.resolve(transfer(id, 0, "cancelled"))),
+    list: vi.fn(() => Promise.resolve([])),
+    resume: vi.fn((_t: string, id: string) => Promise.resolve(transfer(id, 0, "transferring"))),
   };
 }
 

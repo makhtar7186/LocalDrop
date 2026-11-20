@@ -1,10 +1,15 @@
 import { createSHA256, sha256 } from "hash-wasm";
 
 import { ApiError, NetworkError, type TransferApi } from "./api";
+import { forgetUpload, rememberUpload } from "./pendingUploads";
 import type { Transfer } from "./schemas";
 
-// Envoi d'un fichier par blocs (§9.2). Pas de crypto.subtle en HTTP local :
-// hachage avec hash-wasm. Un seul bloc en mémoire à la fois (§5.1).
+// Envoi d'un fichier par blocs (§9.2) avec reprise (FR-026).
+// - Pas de crypto.subtle en HTTP local : hachage avec hash-wasm.
+// - Un seul bloc en mémoire à la fois (§5.1).
+// - Reprise : seuls les blocs absents côté serveur sont envoyés, mais tout le fichier
+//   est relu pour calculer le SHA-256 global vérifié à la finalisation.
+// - Serveur redémarré pendant l'envoi : il répond TRANSFER_PAUSED, on reprend tout seul.
 
 export type UploadStatus =
   | "queued"
@@ -35,7 +40,14 @@ export interface UploadDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-const DEFAULT_RETRY_DELAYS = [500, 1000, 2000, 4000, 8000, 15000] as const;
+export interface UploadOptions {
+  /** Transfert existant à reprendre (après rechargement de la page). */
+  resume?: Transfer;
+}
+
+// ~1 min de tentatives : couvre une coupure Wi-Fi ou un redémarrage du PC.
+const DEFAULT_RETRY_DELAYS = [500, 1000, 2000, 4000, 8000, 15000, 15000, 15000] as const;
+const MAX_RESUMES_PER_CHUNK = 3;
 
 const defaultSleep = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -45,10 +57,11 @@ const defaultSleep = (ms: number) =>
 export interface UploadableFile {
   readonly name: string;
   readonly size: number;
+  readonly lastModified?: number;
   slice(start?: number, end?: number): Blob;
 }
 
-/** Réessaie une opération tant que le serveur est injoignable ; les erreurs API sont finales. */
+/** Réessaie tant que le serveur est injoignable ; les erreurs API sont remontées. */
 async function withRetry<T>(
   operation: () => Promise<T>,
   delays: readonly number[],
@@ -67,7 +80,13 @@ async function withRetry<T>(
   }
 }
 
-export async function uploadFile(file: UploadableFile, deps: UploadDeps): Promise<Transfer> {
+const isPaused = (error: unknown) => error instanceof ApiError && error.code === "TRANSFER_PAUSED";
+
+export async function uploadFile(
+  file: UploadableFile,
+  deps: UploadDeps,
+  options: UploadOptions = {},
+): Promise<Transfer> {
   const {
     api,
     token,
@@ -78,59 +97,76 @@ export async function uploadFile(file: UploadableFile, deps: UploadDeps): Promis
   } = deps;
 
   const started = now();
-  const report = (status: UploadStatus, confirmedBytes: number, extra: Partial<UploadProgress> = {}) => {
+  let confirmed = options.resume?.received_bytes ?? 0;
+  const initiallyConfirmed = confirmed;
+  const report = (status: UploadStatus, extra: Partial<UploadProgress> = {}) => {
     const elapsed = (now() - started) / 1000;
+    const sentThisSession = confirmed - initiallyConfirmed;
     onProgress({
       status,
-      confirmedBytes,
+      confirmedBytes: confirmed,
       totalBytes: file.size,
-      bytesPerSecond: elapsed > 0 ? confirmedBytes / elapsed : 0,
+      bytesPerSecond: elapsed > 0 ? Math.max(0, sentThisSession) / elapsed : 0,
+      ...(transferId ? { transferId } : {}),
       ...extra,
     });
   };
 
-  let transferId: string | undefined;
-  try {
-    const retry = <T,>(op: () => Promise<T>, confirmed: number) =>
-      withRetry(op, retryDelaysMs, sleep, () =>
-        report("retrying", confirmed, transferId ? { transferId } : {}),
-      );
+  let transferId: string | undefined = options.resume?.id;
+  const retry = <T,>(op: () => Promise<T>) =>
+    withRetry(op, retryDelaysMs, sleep, () => report("retrying"));
 
-    const transfer = await retry(() => api.create(token, file.name, file.size), 0);
-    transferId = transfer.id;
-    report("uploading", 0, { transferId });
+  try {
+    let transfer = options.resume ?? (await retry(() => api.create(token, file.name, file.size)));
+    const id = transfer.id;
+    transferId = id;
+    rememberUpload({
+      transferId: id,
+      name: file.name,
+      size: file.size,
+      ...(file.lastModified !== undefined ? { lastModified: file.lastModified } : {}),
+    });
+
+    let alreadyReceived = new Set<number>();
+    if (options.resume) {
+      if (transfer.status === "paused") transfer = await retry(() => api.resume(token, id));
+      alreadyReceived = new Set(await retry(() => api.receivedChunks(token, id)));
+    }
+    report("uploading");
 
     const fileHasher = await createSHA256();
     fileHasher.init();
-    let confirmed = 0;
 
     for (let index = 0; index < transfer.total_chunks; index += 1) {
       const start = index * transfer.chunk_size;
       const end = Math.min(start + transfer.chunk_size, file.size);
       const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
       fileHasher.update(bytes);
-      const chunkHash = await sha256(bytes);
+      if (alreadyReceived.has(index)) continue; // déjà validé : jamais renvoyé (FR-026)
 
-      const ack = await retry(
-        () => api.putChunk(token, transfer.id, index, bytes, chunkHash),
-        confirmed,
-      );
-      confirmed = ack.received_bytes;
-      report("uploading", confirmed, { transferId });
+      const chunkHash = await sha256(bytes);
+      for (let resumes = 0; ; resumes += 1) {
+        try {
+          const ack = await retry(() => api.putChunk(token, id, index, bytes, chunkHash));
+          confirmed = ack.received_bytes;
+          break;
+        } catch (error) {
+          // Le PC a redémarré : le transfert est en pause, on le reprend.
+          if (!isPaused(error) || resumes >= MAX_RESUMES_PER_CHUNK) throw error;
+          await retry(() => api.resume(token, id));
+        }
+      }
+      report("uploading");
     }
 
-    report("verifying", confirmed, { transferId });
-    const done = await retry(
-      () => api.complete(token, transfer.id, fileHasher.digest("hex")),
-      confirmed,
-    );
+    report("verifying");
+    const done = await retry(() => api.complete(token, id, fileHasher.digest("hex")));
+    confirmed = done.received_bytes;
+    forgetUpload(id);
     if (done.status === "completed") {
-      report("completed", done.received_bytes, { transferId });
+      report("completed");
     } else {
-      report("failed", done.received_bytes, {
-        transferId,
-        errorCode: done.error_code ?? "UNKNOWN",
-      });
+      report("failed", { errorCode: done.error_code ?? "UNKNOWN" });
     }
     return done;
   } catch (error) {
@@ -140,7 +176,9 @@ export async function uploadFile(file: UploadableFile, deps: UploadDeps): Promis
         : error instanceof NetworkError
           ? "NETWORK_UNREACHABLE"
           : "UNEXPECTED";
-    report("failed", 0, { ...(transferId ? { transferId } : {}), errorCode });
+    // Une erreur réseau laisse l'envoi reprenable ; une erreur API est définitive.
+    if (transferId && error instanceof ApiError) forgetUpload(transferId);
+    report("failed", { errorCode });
     throw error;
   }
 }
